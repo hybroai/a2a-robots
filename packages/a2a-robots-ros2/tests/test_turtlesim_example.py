@@ -4,6 +4,7 @@ Skipped without ROS 2 and turtlesim unless A2A_ROBOTS_REQUIRE_ROS is set."""
 import asyncio
 import json
 import os
+import random
 import runpy
 import subprocess
 import uuid
@@ -24,17 +25,26 @@ EXAMPLE = Path(__file__).parents[1] / "examples" / "turtlesim_bridge.py"
 
 
 @pytest.fixture
-def turtlesim_node():
+def turtlesim_node(monkeypatch, tmp_path):
+    # The example uses global names (/turtle1/..., /spawn), so any other
+    # turtlesim on the same domain could answer instead. A private domain,
+    # kept set until make_adapter() has created the gateway's rclpy context,
+    # isolates this one.
+    monkeypatch.setenv("ROS_DOMAIN_ID", str(random.randint(30, 99)))
     node = Path(get_package_prefix("turtlesim")) / "lib" / "turtlesim" / "turtlesim_node"
-    process = subprocess.Popen(
-        [str(node)],
-        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    log = tmp_path / "turtlesim.log"
+    with log.open("w") as output:
+        process = subprocess.Popen(
+            [str(node)],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
     yield
+    exited = process.poll()
     process.terminate()
     process.wait(10)
+    assert exited is None, f"turtlesim_node exited with {exited}:\n{log.read_text()}"
 
 
 @pytest.fixture
