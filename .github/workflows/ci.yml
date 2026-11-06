@@ -48,7 +48,7 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - run: apt-get update && apt-get install -y --no-install-recommends ros-jazzy-example-interfaces
+      - run: apt-get update && apt-get install -y --no-install-recommends ros-jazzy-example-interfaces ros-jazzy-turtlesim
       - uses: astral-sh/setup-uv@v6
       - run: uv venv --system-site-packages --python /usr/bin/python3 "$UV_PROJECT_ENVIRONMENT"
       - run: uv sync --frozen --all-packages --extra dev

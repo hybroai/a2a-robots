@@ -83,6 +83,36 @@ uv pip install ./packages/a2a-robots-ros2  # from a checkout of this repository
 - Args are set with `rosidl_runtime_py.set_message_fields`; a field that does not fit the message fails the task without calling ROS.
 - The bridge waits for an action or service server within the skill's `timeout_s`.
 
+## Try it with turtlesim
+
+[`examples/turtlesim_bridge.py`](examples/turtlesim_bridge.py) allowlists turtlesim's `rotate_absolute` action, the `teleport_absolute` and `spawn` services and the pose topic. With ROS 2 Jazzy, `ros-jazzy-turtlesim` installed and the virtual environment from [ROS 2](#ros-2), run each in its own shell with ROS 2 sourced:
+
+```bash
+ros2 run turtlesim turtlesim_node
+python packages/a2a-robots-ros2/examples/turtlesim_bridge.py  # http://127.0.0.1:9200/
+```
+
+The Agent Card at `http://127.0.0.1:9200/.well-known/agent-card.json` lists the four skills. Turn the turtle:
+
+```bash
+curl -s http://127.0.0.1:9200/ -H 'Content-Type: application/json' -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "message/send",
+  "params": {"message": {"role": "user", "messageId": "m1", "parts": [
+    {"kind": "text", "text": "{\"skill\": \"rotate\", \"args\": {\"theta\": 1.57}}"}]}}}' \
+  | jq -j '.result.artifacts[0].parts[].text'
+```
+
+```text
+{"skill": "rotate", "status": "accepted"}
+{"skill": "rotate", "feedback": {"remaining": 1.5700000524520874}}
+{"skill": "rotate", "feedback": {"remaining": 1.058000087738037}}
+{"skill": "rotate", "feedback": {"remaining": 0.5460000038146973}}
+{"skill": "rotate", "feedback": {"remaining": 0.03400003910064697}}
+{"skill": "rotate", "status": "succeeded", "result": {"delta": -1.5520000457763672}}
+```
+
+Use a new `messageId` for each request. Other requests: `{"skill": "pose"}`, `{"skill": "teleport", "args": {"x": 2.0, "y": 3.0, "theta": 0.0}}` and `{"skill": "spawn", "args": {"x": 8.0, "y": 8.0, "theta": 0.0}}`. Stopping the server shuts the ROS node down.
+
 ## Tests
 
 The bridge tests use a fake `RosGateway`, so they need no ROS install:
@@ -92,7 +122,7 @@ uv sync --all-packages --extra dev
 uv run pytest packages/a2a-robots-ros2
 ```
 
-The `RclpyGateway` tests run against a live graph and are skipped without rclpy. CI runs them in the `ros:jazzy-ros-base` image with `ros-jazzy-example-interfaces` installed:
+The `RclpyGateway` tests run against a live graph and are skipped without rclpy. The turtlesim example test starts a headless `turtlesim_node` (`QT_QPA_PLATFORM=offscreen`) and drives it over JSON-RPC. CI runs both in the `ros:jazzy-ros-base` image with `ros-jazzy-example-interfaces` and `ros-jazzy-turtlesim` installed:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
