@@ -16,7 +16,7 @@ members = [
 
 [[package]]
 name = "a2a-adapter"
-version = "0.2.15"
+version = "0.2.19"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },
@@ -25,9 +25,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/86/1a8b3ada7407587c4c01dc2b4b3349d82d038f890b4dd93420598093536d/a2a_adapter-0.2.15.tar.gz", hash = "sha256:f7744dc5d4b3c1534f619625e216b4a4c1c11f18b5862e5b9ef2a52f03837bcd", size = 97796, upload-time = "2026-11-01T20:54:02.247Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/19/bce198750a22cf62c2712f5462aaf6e24238516e3f863821cfd92c40163c/a2a_adapter-0.2.19.tar.gz", hash = "sha256:534e19ed0879d50f8b564a4a2556588180a643d3da84dd255f84d28cf4b6fe92", size = 136423, upload-time = "2026-11-06T21:47:58.15Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/25/1abde777772af311292acfd79e2529b048ff2d7c262d25b6d4f511ab364c/a2a_adapter-0.2.15-py3-none-any.whl", hash = "sha256:5b30805901c3ece08cbfbf1a37c580a41d5193ec2910cdd471153249bd2cfbb4", size = 104540, upload-time = "2026-11-01T20:54:00.636Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/62/096751dea2754d50103a2623349f842d0bdf28ad41935a4235f0c2cb4723/a2a_adapter-0.2.19-py3-none-any.whl", hash = "sha256:4d4b77f96128b7d828b4a48e62b67106fcfe6650e81f2a1f176f46d9cbecaa4e", size = 140579, upload-time = "2026-11-06T21:47:56.155Z" },
 ]
 
 [[package]]
@@ -65,7 +65,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "a2a-adapter", specifier = ">=0.2.15,<0.3" }]
+requires-dist = [{ name = "a2a-adapter", specifier = ">=0.2.19,<0.3" }]
 
 [[package]]
 name = "a2a-robots-sharpa"

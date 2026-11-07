@@ -61,7 +61,7 @@ Feedback is streamed by default. The reply is then newline-delimited JSON in the
 ## Cancel and timeouts
 
 - `tasks/cancel` cancels the goal and waits for the action server's answer before the task is reported cancelled. A cancel that arrives while the goal is still being sent cancels it as soon as it is accepted. A timeout or shutdown cancels the goal too.
-- If the server does not confirm the cancel within `cancel_timeout_s` (5 s by default), or the cancel fails, the bridge logs that the goal may still be running and tries again when the call stops and on shutdown. a2a-adapter still reports the task cancelled after a failed cancel, so check the robot.
+- If the server does not confirm the cancel within `cancel_timeout_s` (5 s by default), or the cancel fails, the bridge logs that the goal may still be running and tries again when the call stops and on shutdown. The task is then marked failed, not cancelled, and `tasks/cancel` returns the error.
 - ROS 2 services cannot be cancelled. Cancelling a service task, or its timeout, stops the wait, but the call may still complete on the robot.
 - `serve_bridge()` binds `127.0.0.1` by default, because anyone who can reach the server can move the robot.
 

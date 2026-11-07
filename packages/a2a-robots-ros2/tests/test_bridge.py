@@ -329,6 +329,28 @@ async def test_a_failed_cancel_is_reported_and_retried(gateway):
         await run
 
 
+async def test_a_failed_cancel_over_json_rpc_fails_the_task(gateway):
+    gateway.script = None
+    gateway.cancel_fails = True
+    app = to_a2a(bridge(gateway, stream_feedback=False))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://ros"
+    ) as client:
+        params = {**message(text_part("rotate", theta=1.0)), "configuration": {"blocking": False}}
+        task_id = (await rpc(client, "message/send", params))["id"]
+        await until(lambda: gateway.goals)
+
+        body = {"jsonrpc": "2.0", "id": "1", "method": "tasks/cancel", "params": {"id": task_id}}
+        cancelled = (await client.post("/", json=body)).json()
+        assert "may still be running" in cancelled["error"]["message"]
+        for _ in range(100):  # the failed state is stored just after the reply
+            task = await rpc(client, "tasks/get", {"id": task_id})
+            if task["status"]["state"] != "working":
+                break
+            await asyncio.sleep(0.01)
+        assert task["status"]["state"] == "failed"
+
+
 async def test_a_cancel_that_times_out_is_not_treated_as_stopped(gateway):
     gateway.script = None
     gateway.accept.clear()
