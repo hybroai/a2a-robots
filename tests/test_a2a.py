@@ -173,3 +173,23 @@ async def test_agent_card_lists_skills_with_examples_and_json_modes(client):
     for skill in skills.values():
         assert json.loads(skill["examples"][0])["skill"] == skill["id"]
         assert "Request:" in skill["description"] and "Response:" in skill["description"]
+
+
+async def test_agent_card_states_the_limits_of_each_motion_skill(client):
+    card = (await client.get("/.well-known/agent-card.json")).json()
+    skills = {s["id"]: s for s in card["skills"]}
+
+    def limits(skill_id):
+        text = skills[skill_id]["description"].split("Limits: ")[1].split(" Request: ")[0]
+        return json.loads(text)
+
+    assert limits("move_to") == {
+        "frame": "world",
+        "workspace": {"min_xyz": [0.0, -0.5, 0.0], "max_xyz": [0.6, 0.5, 0.5]},
+        "max_step_m": 0.05,
+        "max_step_rad": 0.1,
+        "skill_timeout_s": 5.0,
+    }
+    assert limits("open") == limits("close") == {"skill_timeout_s": 5.0}
+    assert "Limits:" not in skills["observe"]["description"]
+    assert "Limits:" not in skills["stop"]["description"]

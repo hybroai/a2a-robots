@@ -37,9 +37,33 @@ Every skill returns the same result, as JSON text and as an `application/json` d
  "final_pose": {"right": {...}}, "contact": {"right": {}}, "held": {"right": false}}
 ```
 
-`failure_code` is one of `step_too_large`, `out_of_workspace`, `busy`, `stopped`, `timeout`, `slipped`, `unreachable`. A skill that ran but did not succeed is a completed A2A task with `success: false`, so the agent can observe and retry. Only a malformed request fails the A2A task, and nothing moves.
+A skill that ran but did not succeed, or was refused before moving, is a completed A2A task with `success: false` and a `failure_code`, so the agent can observe and retry:
+
+| `failure_code` | Meaning |
+| --- | --- |
+| `step_too_large` | The move is larger than `max_step_m` or `max_step_rad`. Nothing moved; the result includes the step limits. |
+| `out_of_workspace` | The target is outside the workspace box. Nothing moved; the result includes the step limits. |
+| `busy` | Another skill is running, the robot is stopping, or the last motion has not stopped. Nothing moved. |
+| `stopped` | `stop` was requested during the motion. |
+| `timeout` | The motion took longer than `skill_timeout_s` and was stopped. |
+| `slipped` | The backend lost the grasp. |
+| `unreachable` | The target could not be reached: the planner found no safe path, or the hand did not settle there. |
+
+A malformed request (unknown skill or hand, missing or extra fields, wrong units, a frame other than the workspace frame, or a non-unit quaternion) fails the A2A task, and nothing moves. A cancelled skill ends the task canceled; see Safety for when it ends failed instead.
+
+The agent card states the limits a client must respect. The `move_to` description includes a `Limits:` JSON object with the workspace `frame`, the workspace box (`min_xyz`, `max_xyz`), `max_step_m`, `max_step_rad` and `skill_timeout_s`; `open` and `close` include `skill_timeout_s`.
 
 ## Safety
+
+The limits come from `SafetyLimits`, passed to `RobotAdapter`:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `workspace` | required | An axis-aligned box in metres, in one named frame. Every `move_to` pose must use this frame. |
+| `max_step_m` | 0.01 | Largest move of one `move_to`, in metres. |
+| `max_step_rad` | 0.05 | Largest rotation of one `move_to`, in radians. |
+| `skill_timeout_s` | 10.0 | A motion that runs longer is stopped and fails with `timeout`. |
+| `stop_timeout_s` | 2.0 | How long a stop may take before the robot is reported as possibly still moving. |
 
 - A move larger than `max_step_m` or `max_step_rad`, or a target outside the workspace box, is refused before anything moves. The result includes the limits. Moves are never clamped.
 - A step is measured from the hand's last target when its last skill was a successful `move_to`, because a robot settles within a small tolerance of the target, not exactly on it. After anything else (a failed move, a stop, a timeout, a cancel, or `open`/`close` on that hand) it is measured from the observed pose. So the hand moves at most `max_step_m` plus the backend's settle tolerance.

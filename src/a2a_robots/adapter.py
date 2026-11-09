@@ -27,8 +27,12 @@ _EXAMPLE_RESULT = (
 )
 
 
-def _skill(skill_id: str, description: str, args: dict[str, Any]) -> dict[str, Any]:
+def _skill(
+    skill_id: str, description: str, args: dict[str, Any], limits: dict[str, Any] | None = None
+) -> dict[str, Any]:
     request = json.dumps({"skill": skill_id, "args": args})
+    if limits is not None:
+        description = f"{description} Limits: {json.dumps(limits)}"
     return {
         "id": skill_id,
         "name": skill_id,
@@ -40,20 +44,37 @@ def _skill(skill_id: str, description: str, args: dict[str, Any]) -> dict[str, A
     }
 
 
-SKILLS = [
-    _skill("observe", "Read the pose, contact and held state of every hand. Always allowed.", {}),
-    _skill(
-        "move_to",
-        "Move a hand to a pose. frame, units and orientation are required; "
-        "a move larger than the step limit is refused before anything moves.",
-        {"hand": "right", "pose": _EXAMPLE_POSE},
-    ),
-    _skill("open", "Open a hand.", {"hand": "right"}),
-    _skill(
-        "close", "Close a hand; held reports whether it is holding something.", {"hand": "right"}
-    ),
-    _skill("stop", "Stop all motion now and freeze every hand. Always allowed.", {}),
-]
+def _skills(limits: SafetyLimits) -> list[dict[str, Any]]:
+    """The skills for the agent card, with each motion skill's limits."""
+    workspace = limits.workspace
+    timeout = {"skill_timeout_s": limits.skill_timeout_s}
+    move_limits = {
+        "frame": workspace.frame,
+        "workspace": {"min_xyz": list(workspace.min_xyz), "max_xyz": list(workspace.max_xyz)},
+        **limits.as_dict(),
+        **timeout,
+    }
+    return [
+        _skill(
+            "observe", "Read the pose, contact and held state of every hand. Always allowed.", {}
+        ),
+        _skill(
+            "move_to",
+            "Move a hand to a pose. frame, units and orientation are required; "
+            "a move larger than the step limit, or a target outside the workspace box, "
+            "is refused before anything moves.",
+            {"hand": "right", "pose": _EXAMPLE_POSE},
+            move_limits,
+        ),
+        _skill("open", "Open a hand.", {"hand": "right"}, timeout),
+        _skill(
+            "close",
+            "Close a hand; held reports whether it is holding something.",
+            {"hand": "right"},
+            timeout,
+        ),
+        _skill("stop", "Stop all motion now and freeze every hand. Always allowed.", {}),
+    ]
 
 
 class RobotAdapter(BaseA2AAdapter):
@@ -102,7 +123,7 @@ class RobotAdapter(BaseA2AAdapter):
         return AdapterMetadata(
             name=self._name,
             description=self._description,
-            skills=SKILLS,
+            skills=_skills(self.controller.limits),
             input_modes=[JSON, "text/plain"],
             output_modes=[JSON, "text/plain"],
         )
