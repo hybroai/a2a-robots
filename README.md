@@ -45,6 +45,9 @@ Every skill returns the same result, as JSON text and as an `application/json` d
 - A step is measured from the hand's last target when its last skill was a successful `move_to`, because a robot settles within a small tolerance of the target, not exactly on it. After anything else (a failed move, a stop, a timeout, a cancel, or `open`/`close` on that hand) it is measured from the observed pose. So the hand moves at most `max_step_m` plus the backend's settle tolerance.
 - One skill runs at a time per robot. A second motion request fails at once with `busy` instead of queueing.
 - `stop`, `tasks/cancel`, timeouts and shutdown all stop the backend. Backends run in a worker thread and poll a stop flag every control step, so stopping does not depend on cancelling a Python task.
+- `tasks/cancel` replies only after the motion has stopped and the hands are frozen, and the task is then canceled.
+- If the motion does not stop within `stop_timeout_s` (2 s by default), the hands are still told to hold, but the stop, cancel or timed-out skill fails with "the robot did not stop ... it may still be moving", and a cancelled task ends failed rather than canceled. No new motion starts until that motion ends.
+- If the backend raises during a motion, the hands are frozen and the task fails with the error.
 - The adapter checks only the target pose. The path to it is the planner's job (see below); `MujocoPlanner` rejects paths that collide with the simulated scene. Real hardware also needs the robot's own safety checks.
 - `serve_robot()` binds `127.0.0.1` by default, because anyone who can reach the server can move the robot.
 

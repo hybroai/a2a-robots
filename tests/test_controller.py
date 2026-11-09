@@ -4,7 +4,16 @@ import threading
 import pytest
 from helpers import make_limits, pose
 
-from a2a_robots import FailureCode, FakeBackend, Pose, RequestError, RobotController, Skill
+from a2a_robots import (
+    FailureCode,
+    FakeBackend,
+    Pose,
+    RequestError,
+    RobotController,
+    Skill,
+    SkillCancelled,
+    StopError,
+)
 from a2a_robots.skills import parse_request
 
 HANDS = frozenset({"left", "right"})
@@ -30,6 +39,23 @@ class BlockingHoldBackend(FakeBackend):
         self.hold_started.set()
         self.release_hold.wait(5)
         super().hold()
+
+
+class IgnoresStopBackend(FakeBackend):
+    """Keeps moving after stop until the test releases it, like a stuck SDK call."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.release = threading.Event()
+
+    def open(self, hand, stop):
+        self.release.wait(5)
+        return super().open(hand, threading.Event())
+
+
+class FailingMoveBackend(FakeBackend):
+    def open(self, hand, stop):
+        raise RuntimeError("motor fault")
 
 
 async def test_observe_reports_every_hand_in_the_result_schema(controller):
@@ -124,23 +150,97 @@ async def test_timeout_stops_the_hand_instead_of_leaving_it_moving():
     assert backend.hold_calls == 1
 
 
-async def test_cancelling_the_task_stops_the_backend_thread():
+async def test_cancel_returns_once_the_hands_are_frozen():
     backend = FakeBackend(steps=100, step_time_s=0.01)
     controller = RobotController(backend, make_limits())
     move = asyncio.create_task(
         controller.run(req("move_to", hand="right", pose=pose(0.3, 0.1, 0.14)), "t1")
     )
     await asyncio.sleep(0.05)
-    controller.cancel("t1")
+
+    await controller.cancel("t1")
+    assert backend.hold_calls == 1
+    z = right_position(backend)[2]
+    with pytest.raises(SkillCancelled):
+        await move
+    await asyncio.sleep(0.05)
+
+    assert right_position(backend)[2] == z
+    assert (await controller.run(req("open", hand="right"), "t2")).success
+
+
+async def test_cancelling_the_task_before_cancel_still_stops_the_backend_thread():
+    """Some a2a-sdk versions cancel the running coroutine before calling cancel()."""
+    backend = FakeBackend(steps=100, step_time_s=0.01)
+    controller = RobotController(backend, make_limits())
+    move = asyncio.create_task(
+        controller.run(req("move_to", hand="right", pose=pose(0.3, 0.1, 0.14)), "t1")
+    )
+    await asyncio.sleep(0.05)
     move.cancel()
+    await controller.cancel("t1")
     with pytest.raises(asyncio.CancelledError):
         await move
     z = right_position(backend)[2]
     await asyncio.sleep(0.05)
 
     assert right_position(backend)[2] == z
-    assert backend.hold_calls == 1
+    assert backend.hold_calls >= 1
     assert (await controller.run(req("open", hand="right"), "t2")).success
+
+
+async def test_a_stop_the_backend_ignores_is_reported_and_blocks_new_motion():
+    backend = IgnoresStopBackend()
+    controller = RobotController(backend, make_limits(stop_timeout_s=0.05))
+    move = asyncio.create_task(controller.run(req("open", hand="right"), "t1"))
+    await asyncio.sleep(0.02)
+
+    with pytest.raises(StopError, match="did not stop within 0.05 s"):
+        await controller.run(req("stop"), "t2")
+    assert backend.hold_calls == 1  # the hands are still told to hold
+    busy = await controller.run(req("close", hand="left"), "t3")
+    assert busy.failure_code is FailureCode.BUSY
+
+    backend.release.set()
+    await move
+    assert (await controller.run(req("close", hand="left"), "t4")).success
+
+
+async def test_a_cancel_the_backend_ignores_raises_stop_error():
+    backend = IgnoresStopBackend()
+    controller = RobotController(backend, make_limits(stop_timeout_s=0.05))
+    move = asyncio.create_task(controller.run(req("open", hand="right"), "t1"))
+    await asyncio.sleep(0.02)
+
+    with pytest.raises(StopError):
+        await controller.cancel("t1")
+    backend.release.set()
+    with pytest.raises(SkillCancelled):
+        await move
+
+
+async def test_a_timeout_the_backend_ignores_fails_the_skill():
+    backend = IgnoresStopBackend(steps=2)
+    controller = RobotController(backend, make_limits(skill_timeout_s=0.05, stop_timeout_s=0.05))
+    with pytest.raises(StopError):
+        await controller.run(req("open", hand="right"), "t1")
+    # The timed-out run has ended, but its motion thread is still going.
+    busy = await controller.run(req("close", hand="left"), "t2")
+    assert busy.failure_code is FailureCode.BUSY
+    assert busy.detail == "the last motion has not stopped"
+
+    backend.release.set()
+    await asyncio.sleep(0.1)  # the released motion finishes its steps
+    assert (await controller.run(req("close", hand="left"), "t3")).success
+
+
+async def test_a_backend_error_freezes_the_hands():
+    backend = FailingMoveBackend()
+    controller = RobotController(backend, make_limits())
+    with pytest.raises(RuntimeError, match="motor fault"):
+        await controller.run(req("open", hand="right"), "t1")
+    assert backend.hold_calls == 1
+    assert (await controller.run(req("close", hand="right"), "t2")).success
 
 
 async def test_no_motion_starts_while_an_idle_stop_is_freezing():
@@ -184,8 +284,9 @@ async def test_cancel_without_a_task_id_stops_a_motion_started_without_one():
     controller = RobotController(backend, make_limits())
     move = asyncio.create_task(controller.run(req("open", hand="right"), None))
     await asyncio.sleep(0.05)
-    controller.cancel(None)
-    assert (await asyncio.wait_for(move, 0.5)).failure_code is FailureCode.STOPPED
+    await controller.cancel(None)
+    with pytest.raises(SkillCancelled):
+        await asyncio.wait_for(move, 0.5)
 
 
 class SettlesShortBackend(FakeBackend):
@@ -265,7 +366,7 @@ async def test_cancel_for_another_task_does_not_stop_the_motion():
     controller = RobotController(backend, make_limits())
     move = asyncio.create_task(controller.run(req("open", hand="right"), "t1"))
     await asyncio.sleep(0.03)
-    controller.cancel("other")
+    await controller.cancel("other")
     assert (await move).success
 
 
@@ -293,3 +394,15 @@ async def test_aclose_stops_and_shuts_down_the_backend(controller, backend):
     await controller.aclose()
     assert backend.shut_down
     assert backend.hold_calls == 1
+
+
+async def test_aclose_shuts_down_even_when_the_stop_times_out():
+    backend = IgnoresStopBackend()
+    controller = RobotController(backend, make_limits(stop_timeout_s=0.05))
+    move = asyncio.create_task(controller.run(req("open", hand="right"), "t1"))
+    await asyncio.sleep(0.02)
+    with pytest.raises(StopError):
+        await controller.aclose()
+    assert backend.shut_down
+    backend.release.set()
+    await move

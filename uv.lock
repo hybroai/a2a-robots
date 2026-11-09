@@ -48,7 +48,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-adapter", specifier = ">=0.2.15,<0.3" },
+    { name = "a2a-adapter", specifier = ">=0.2.19,<0.3" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },

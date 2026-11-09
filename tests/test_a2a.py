@@ -119,6 +119,50 @@ async def test_stop_preempts_a_move_sent_by_another_client(client, backend):
     assert backend.hold_calls == 1
 
 
+async def start_move(client):
+    params = {
+        **message(data_part("open", hand="right")),
+        "configuration": {"blocking": False},
+    }
+    task_id = (await rpc(client, "message/send", params))["result"]["id"]
+    await asyncio.sleep(0.1)
+    return task_id
+
+
+async def wait_for_state(client, task_id):
+    for _ in range(100):  # the final state is stored just after the cancel reply
+        task = (await rpc(client, "tasks/get", {"id": task_id}))["result"]
+        if task["status"]["state"] not in ("submitted", "working"):
+            return task
+        await asyncio.sleep(0.01)
+    return task
+
+
+async def test_tasks_cancel_replies_after_the_hands_are_frozen(client, backend):
+    task_id = await start_move(client)
+    cancelled = (await rpc(client, "tasks/cancel", {"id": task_id}))["result"]
+
+    assert backend.hold_calls == 1
+    assert cancelled["status"]["state"] == "canceled"
+    assert (await wait_for_state(client, task_id))["status"]["state"] == "canceled"
+
+
+async def test_tasks_cancel_fails_the_task_when_the_robot_does_not_stop():
+    from test_controller import IgnoresStopBackend
+
+    backend = IgnoresStopBackend()
+    app = to_a2a(RobotAdapter(backend, make_limits(stop_timeout_s=0.05)))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://robot"
+    ) as client:
+        task_id = await start_move(client)
+        reply = await rpc(client, "tasks/cancel", {"id": task_id})
+        backend.release.set()
+
+        assert "may still be moving" in reply["error"]["message"]
+        assert (await wait_for_state(client, task_id))["status"]["state"] == "failed"
+
+
 async def test_agent_card_lists_skills_with_examples_and_json_modes(client):
     card = (await client.get("/.well-known/agent-card.json")).json()
     assert card["name"] == "Fake robot"

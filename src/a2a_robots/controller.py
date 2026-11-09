@@ -19,6 +19,14 @@ from .skills import FailureCode, Pose, RequestError, Skill, SkillRequest, SkillR
 logger = logging.getLogger(__name__)
 
 
+class StopError(RuntimeError):
+    """The backend did not stop in time, so the robot may still be moving."""
+
+
+class SkillCancelled(Exception):
+    """The motion was stopped by ``cancel`` for its own task."""
+
+
 class RobotController:
     def __init__(self, backend: RobotBackend, limits: SafetyLimits) -> None:
         self.backend = backend
@@ -27,6 +35,7 @@ class RobotController:
         self._busy_task: str | None = None
         self._stopping = 0
         self._worker: asyncio.Future[MotionOutcome] | None = None
+        self._cancelled: set[str] = set()
         # Target of each hand's last successful move. A backend stops within its
         # settle tolerance, so the next step is measured from here instead of
         # the observed pose. Cleared by anything that may leave the hand elsewhere.
@@ -45,25 +54,39 @@ class RobotController:
 
         No motion can start until the hands are frozen, including in the gap
         after a stopped motion releases the busy flag and before ``hold`` ends.
+        Raises ``StopError`` if the motion does not stop within
+        ``stop_timeout_s``; the hands are still told to hold.
         """
         self._stopping += 1
         try:
             self._stop.set()
-            await self._wait_for_worker()
+            stopped = await self._wait_for_worker()
             await asyncio.to_thread(self.backend.hold)
             self._commanded.clear()
         finally:
             self._stopping -= 1
+        if not stopped:
+            raise StopError(
+                f"the robot did not stop within {self.limits.stop_timeout_s} s; "
+                "it may still be moving"
+            )
 
-    def cancel(self, task_id: str | None) -> None:
-        """Stop the motion started by ``task_id``, if it is the one running."""
+    async def cancel(self, task_id: str | None) -> None:
+        """Stop the motion started by ``task_id``, if it is the one running, and
+        return once the hands are frozen. That run then raises ``SkillCancelled``.
+        Raises ``StopError`` if the robot did not stop in time."""
         # A run without a task id is stored as "", so None matches it here.
-        if (task_id or "") == self._busy_task:
-            self._stop.set()
+        key = task_id or ""
+        if key != self._busy_task:
+            return
+        self._cancelled.add(key)  # before the await, so the run sees it
+        await self.stop()
 
     async def aclose(self) -> None:
-        await self.stop()
-        await asyncio.to_thread(self.backend.shutdown)
+        try:
+            await self.stop()
+        finally:
+            await asyncio.to_thread(self.backend.shutdown)
 
     async def _run_motion(self, request: SkillRequest, task_id: str | None) -> SkillResult:
         if request.pose is not None and request.pose.frame != self.limits.workspace.frame:
@@ -75,7 +98,11 @@ class RobotController:
             return await self._result(
                 request.skill, FailureCode.BUSY, "another skill is running on this robot"
             )
-        self._busy_task = task_id or ""
+        if self._worker is not None and not self._worker.done():
+            return await self._result(
+                request.skill, FailureCode.BUSY, "the last motion has not stopped"
+            )
+        key = self._busy_task = task_id or ""
         self._stop.clear()
         try:
             if request.skill is Skill.MOVE_TO:
@@ -94,6 +121,8 @@ class RobotController:
                 call = functools.partial(self.backend.close, request.hand, self._stop)
             self._commanded.pop(request.hand, None)
             outcome = await self._run_worker(call)
+            if key in self._cancelled:
+                raise SkillCancelled(f"{request.skill} was cancelled")
             if (
                 request.skill is Skill.MOVE_TO
                 and outcome.failure_code is None
@@ -103,6 +132,7 @@ class RobotController:
             return await self._result(request.skill, outcome.failure_code, outcome.detail)
         finally:
             self._busy_task = None
+            self._cancelled.discard(key)
 
     async def _run_worker(self, call: functools.partial[MotionOutcome]) -> MotionOutcome:
         self._worker = asyncio.ensure_future(asyncio.to_thread(call))
@@ -115,14 +145,30 @@ class RobotController:
             )
         except asyncio.CancelledError:
             # tasks/cancel cancels this coroutine, not the thread: stop the hand too.
-            await asyncio.shield(self.stop())
+            # A stop that times out is reported by cancel(), not here.
+            with contextlib.suppress(StopError):
+                await asyncio.shield(self.stop())
+            raise
+        except Exception:
+            # The backend failed mid-motion: freeze the hands before reporting it.
+            try:
+                await self.stop()
+            except Exception:
+                logger.exception("Could not freeze the robot after a backend error")
             raise
 
-    async def _wait_for_worker(self) -> None:
+    async def _wait_for_worker(self) -> bool:
+        """Wait for the motion thread to end; False if it is still running."""
         worker = self._worker
-        if worker is not None and not worker.done():
-            with contextlib.suppress(Exception):
-                await asyncio.shield(worker)
+        if worker is None or worker.done():
+            return True
+        try:
+            await asyncio.wait_for(asyncio.shield(worker), self.limits.stop_timeout_s)
+        except TimeoutError:
+            return False
+        except Exception:
+            pass  # the motion's own error is reported by its run
+        return True
 
     async def _result(
         self,

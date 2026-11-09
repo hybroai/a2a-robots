@@ -6,11 +6,11 @@ import json
 from typing import Any
 
 from a2a.types import Part
-from a2a_adapter import AdapterMetadata, BaseA2AAdapter, serve_agent
+from a2a_adapter import AdapterMetadata, BaseA2AAdapter, CancelledByAdapterError, serve_agent
 from google.protobuf import json_format, struct_pb2
 
 from .backend import RobotBackend
-from .controller import RobotController
+from .controller import RobotController, SkillCancelled
 from .limits import SafetyLimits
 from .skills import RequestError, parse_request
 
@@ -79,14 +79,21 @@ class RobotAdapter(BaseA2AAdapter):
         context = kwargs.get("context")
         payload = _request_payload(user_input, context)
         request = parse_request(payload, self.controller.backend.hands)
-        result = await self.controller.run(request, getattr(context, "task_id", None))
+        try:
+            result = await self.controller.run(request, getattr(context, "task_id", None))
+        except SkillCancelled as e:
+            # cancel() already stopped the robot; the task is reported canceled.
+            raise CancelledByAdapterError(str(e)) from None
         data = struct_pb2.Value()
         json_format.ParseDict(result.to_dict(), data)
         return [Part(text=result.to_json()), Part(data=data, media_type=JSON)]
 
     async def cancel(self, context_id: str | None = None, **kwargs: Any) -> None:
+        """Return once the robot has stopped and the hands are frozen. Raises
+        ``StopError`` if it did not stop in time, so the task fails instead of
+        being reported canceled."""
         context = kwargs.get("context")
-        self.controller.cancel(getattr(context, "task_id", None))
+        await self.controller.cancel(getattr(context, "task_id", None))
 
     async def close(self) -> None:
         await self.controller.aclose()

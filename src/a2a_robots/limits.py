@@ -32,6 +32,8 @@ class SafetyLimits:
     max_step_m: float = 0.01
     max_step_rad: float = 0.05
     skill_timeout_s: float = 10.0
+    # How long a stop may take before the robot is reported as possibly still moving.
+    stop_timeout_s: float = 2.0
 
     def as_dict(self) -> dict[str, float]:
         return {"max_step_m": self.max_step_m, "max_step_rad": self.max_step_rad}
