@@ -30,9 +30,15 @@ from .skills import FailureCode, Pose
 
 class StopAfter(threading.Event):
     """A stop event that sets itself on the ``polls``-th time the backend
-    checks it, as if ``stop`` arrived during the motion."""
+    checks it, as if ``stop`` arrived during the motion.
 
-    def __init__(self, polls: int, on_poll: Callable[[], None] | None = None) -> None:
+    Every ``is_set()`` and ``wait()`` call counts as a poll and may set the
+    event, so a backend's own final ``stop.is_set()`` check (for example to
+    tell a stop from another failure) can trigger the stop. Pass
+    ``polls=math.inf`` to only count polls.
+    """
+
+    def __init__(self, polls: float, on_poll: Callable[[], None] | None = None) -> None:
         super().__init__()
         self.polls = 0
         self._limit = polls
@@ -63,7 +69,7 @@ class BackendContract:
 
     frame = "world"
     position_tolerance_m = 0.005
-    stop_polls = 2  # stop on the second poll, so the motion has started
+    stop_polls = 3  # stop on the third poll, so the motion is under way
     observe_timeout_s = 1.0
 
     def make_backend(self) -> RobotBackend:
@@ -136,13 +142,30 @@ class BackendContract:
             after = backend.observe()[hand].pose
             assert self._distance(before, after) <= self.position_tolerance_m, name
 
-    def test_a_motion_polls_stop_and_returns_stopped(self) -> None:
+    def test_a_motion_polls_stop_while_it_runs(self) -> None:
+        """A full motion checks stop more than ``stop_polls`` times, so it does
+        not only check at the start and the end."""
         for name in ("move_to", "open", "close"):
             backend = self._backend()
+            counter = StopAfter(math.inf)
+            self._motions(backend, self._hand(backend))[name](counter)
+            assert counter.polls > self.stop_polls, (
+                f"{name} polled stop {counter.polls} times; it must poll at every control step"
+            )
+
+    def test_a_motion_stopped_partway_returns_stopped(self) -> None:
+        for name in ("move_to", "open", "close"):
+            backend = self._backend()
+            hand = self._hand(backend)
+            target = self.move_target(backend, hand)
             stop = StopAfter(self.stop_polls)
-            outcome = self._motions(backend, self._hand(backend))[name](stop)
-            assert stop.polls >= self.stop_polls, f"{name} did not poll stop every step"
+            outcome = self._motions(backend, hand)[name](stop)
             assert outcome.failure_code is FailureCode.STOPPED, f"{name}: {outcome}"
+            if name == "move_to":
+                reached = backend.observe()[hand].pose
+                assert self._distance(reached, target) > self.position_tolerance_m, (
+                    "move_to reached the target after stop was set"
+                )
 
     def test_observe_is_safe_during_motion(self) -> None:
         backend = self._backend()

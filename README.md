@@ -86,7 +86,7 @@ class TestMyRobotContract(BackendContract):
         return MyRobotBackend(...)
 ```
 
-They check that `observe` reports every hand and stays safe during motion, that `move_to`, `open` and `close` return `stopped` when `stop` is set before or during the motion, that `hold` keeps the hands still, and that the robot moves again after a stop. Override `move_target()` or the tolerances if the default small move does not suit the robot.
+They check that `observe` reports every hand and stays safe during motion, that `move_to`, `open` and `close` check `stop` throughout the motion and return `stopped` when it is set before or during it, that `hold` keeps the hands still, and that the robot moves again after a stop. Override `move_target()` or the tolerances if the default small move does not suit the robot.
 
 ## Development
 
