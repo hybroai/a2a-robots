@@ -75,6 +75,19 @@ Arms such as Sharpa D01 take joint position targets, with planning and collision
 
 A robot package subclasses `RobotBackend` and implements `hands`, `observe`, `move_to`, `open`, `close`, `hold` and `shutdown`. Motion methods are synchronous, run in a worker thread, and must check the `stop` event at every control step and return `MotionOutcome(FailureCode.STOPPED)` once it is set. See `src/a2a_robots/fake.py` and `packages/a2a-robots-sharpa`.
 
+Every backend must pass the shared conformance checks in `a2a_robots.testing`. Subclass `BackendContract` in the package's tests and return the backend from `make_backend()`:
+
+```python
+from a2a_robots.testing import BackendContract
+
+
+class TestMyRobotContract(BackendContract):
+    def make_backend(self):
+        return MyRobotBackend(...)
+```
+
+They check that `observe` reports every hand and stays safe during motion, that `move_to`, `open` and `close` return `stopped` when `stop` is set before or during the motion, that `hold` keeps the hands still, and that the robot moves again after a stop. Override `move_target()` or the tolerances if the default small move does not suit the robot.
+
 ## Development
 
 ```bash
