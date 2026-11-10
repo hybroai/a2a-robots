@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from a2a_adapter import UserFacingError
+
 
 class Skill(StrEnum):
     OBSERVE = "observe"
@@ -36,8 +38,8 @@ class FailureCode(StrEnum):
     UNREACHABLE = "unreachable"
 
 
-class RequestError(ValueError):
-    """The request is malformed. The A2A task fails; nothing moves."""
+class RequestError(UserFacingError, ValueError):
+    """The request is malformed. The A2A task fails with this message; nothing moves."""
 
 
 @dataclass(frozen=True, slots=True)

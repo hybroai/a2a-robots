@@ -12,17 +12,20 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from a2a_adapter import UserFacingError
+
 from .config import SkillSpec
 
 GoalStatus = Literal["succeeded", "aborted", "canceled"]
 
 
-class RequestError(ValueError):
-    """The request is malformed. The A2A task fails and nothing is sent to ROS."""
+class RequestError(UserFacingError, ValueError):
+    """The request is malformed. The A2A task fails with this message and nothing is sent to ROS."""
 
 
-class RosError(RuntimeError):
-    """The ROS call could not run: no server, goal rejected, or timed out. The task fails."""
+class RosError(UserFacingError):
+    """The ROS call could not run: no server, goal rejected, or timed out. The task fails
+    with this message, so it must name only ROS interfaces and states."""
 
 
 @dataclass(frozen=True, slots=True)

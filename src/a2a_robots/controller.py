@@ -12,6 +12,8 @@ import functools
 import logging
 import threading
 
+from a2a_adapter import UserFacingError
+
 from .backend import MotionOutcome, RobotBackend
 from .limits import SafetyLimits
 from .skills import FailureCode, Pose, RequestError, Skill, SkillRequest, SkillResult
@@ -19,7 +21,7 @@ from .skills import FailureCode, Pose, RequestError, Skill, SkillRequest, SkillR
 logger = logging.getLogger(__name__)
 
 
-class StopError(RuntimeError):
+class StopError(UserFacingError):
     """The backend did not stop in time, so the robot may still be moving."""
 
 
@@ -120,8 +122,14 @@ class RobotController:
             else:
                 call = functools.partial(self.backend.close, request.hand, self._stop)
             self._commanded.pop(request.hand, None)
-            outcome = await self._run_worker(call)
+            try:
+                outcome = await self._run_worker(call)
+            except StopError:
+                if key not in self._cancelled:
+                    raise
+                # A timeout during a cancel; cancel() reports the failed stop.
             if key in self._cancelled:
+                await self._motion_ended()
                 raise SkillCancelled(f"{request.skill} was cancelled")
             if (
                 request.skill is Skill.MOVE_TO
@@ -156,6 +164,19 @@ class RobotController:
             except Exception:
                 logger.exception("Could not freeze the robot after a backend error")
             raise
+
+    async def _motion_ended(self) -> None:
+        """Wait, without a bound, for the motion thread to end.
+
+        When ``cancel`` fails, a2a-adapter reports the task canceled if the run
+        has already ended, so a cancelled run must not end before the robot
+        stops. The executor waits a bounded time and then fails the task, and
+        cancelling this wait ends the run.
+        """
+        worker = self._worker
+        if worker is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(worker)
 
     async def _wait_for_worker(self) -> bool:
         """Wait for the motion thread to end; False if it is still running."""

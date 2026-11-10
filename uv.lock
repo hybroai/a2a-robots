@@ -16,18 +16,19 @@ members = [
 
 [[package]]
 name = "a2a-adapter"
-version = "0.2.19"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },
     { name = "grpcio" },
+    { name = "httpcore" },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/19/bce198750a22cf62c2712f5462aaf6e24238516e3f863821cfd92c40163c/a2a_adapter-0.2.19.tar.gz", hash = "sha256:534e19ed0879d50f8b564a4a2556588180a643d3da84dd255f84d28cf4b6fe92", size = 136423, upload-time = "2026-11-06T21:47:58.15Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/56/b8f17727618414884a2c0234ade18f2e6dc65ef5ba176c4d1fff5d654384/a2a_adapter-0.4.1.tar.gz", hash = "sha256:3014d3c949a802f44dd8d3b785cf0764fd3773a95e9b70ab2d5cc6bb3dce6996", size = 189302, upload-time = "2026-11-10T05:26:57.655Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/62/096751dea2754d50103a2623349f842d0bdf28ad41935a4235f0c2cb4723/a2a_adapter-0.2.19-py3-none-any.whl", hash = "sha256:4d4b77f96128b7d828b4a48e62b67106fcfe6650e81f2a1f176f46d9cbecaa4e", size = 140579, upload-time = "2026-11-06T21:47:56.155Z" },
+    { url = "https://files.pythonhosted.org/packages/15/be/248dc965f62038bbb1029d934c8db9ac38225487ff37b93b513a23e399a0/a2a_adapter-0.4.1-py3-none-any.whl", hash = "sha256:11a2f3871d974569321be1c5d67d5f544928523c1efe21f1eaf365a4c5fac7a9", size = 166287, upload-time = "2026-11-10T05:26:56.147Z" },
 ]
 
 [[package]]
@@ -48,7 +49,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-adapter", specifier = ">=0.2.19,<0.3" },
+    { name = "a2a-adapter", specifier = ">=0.4.1,<0.5" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
@@ -65,7 +66,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "a2a-adapter", specifier = ">=0.2.19,<0.3" }]
+requires-dist = [{ name = "a2a-adapter", specifier = ">=0.4.1,<0.5" }]
 
 [[package]]
 name = "a2a-robots-sharpa"

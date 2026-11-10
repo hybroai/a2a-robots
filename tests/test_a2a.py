@@ -9,7 +9,7 @@ import pytest
 from a2a_adapter import to_a2a
 from helpers import make_limits, pose
 
-from a2a_robots import FakeBackend, RobotAdapter
+from a2a_robots import SAFETY_LIMITS_EXTENSION, FakeBackend, RobotAdapter
 
 
 @pytest.fixture
@@ -147,20 +147,41 @@ async def test_tasks_cancel_replies_after_the_hands_are_frozen(client, backend):
     assert (await wait_for_state(client, task_id))["status"]["state"] == "canceled"
 
 
-async def test_tasks_cancel_fails_the_task_when_the_robot_does_not_stop():
+async def test_tasks_cancel_fails_the_task_when_the_robot_does_not_stop(monkeypatch):
     from test_controller import IgnoresStopBackend
 
+    # a2a-adapter waits this long for the run to end before it fails the task.
+    monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 0.2)
     backend = IgnoresStopBackend()
     app = to_a2a(RobotAdapter(backend, make_limits(stop_timeout_s=0.05)))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://robot"
     ) as client:
         task_id = await start_move(client)
-        reply = await rpc(client, "tasks/cancel", {"id": task_id})
+        cancelled = (await rpc(client, "tasks/cancel", {"id": task_id}))["result"]
         backend.release.set()
 
-        assert "may still be moving" in reply["error"]["message"]
+        assert cancelled["status"]["state"] == "failed"
+        assert "may still be moving" in cancelled["status"]["message"]["parts"][0]["text"]
         assert (await wait_for_state(client, task_id))["status"]["state"] == "failed"
+
+
+async def test_tasks_cancel_is_canceled_when_a_slow_stop_ends_in_time(monkeypatch):
+    from test_controller import IgnoresStopBackend
+
+    monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 2.0)
+    backend = IgnoresStopBackend()
+    app = to_a2a(RobotAdapter(backend, make_limits(stop_timeout_s=0.05)))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://robot"
+    ) as client:
+        task_id = await start_move(client)
+        reply = asyncio.create_task(rpc(client, "tasks/cancel", {"id": task_id}))
+        await asyncio.sleep(0.2)  # the stop has timed out; the motion is still going
+        assert not reply.done()
+        backend.release.set()
+
+        assert (await reply)["result"]["status"]["state"] == "canceled"
 
 
 async def test_agent_card_lists_skills_with_examples_and_json_modes(client):
@@ -175,21 +196,17 @@ async def test_agent_card_lists_skills_with_examples_and_json_modes(client):
         assert "Request:" in skill["description"] and "Response:" in skill["description"]
 
 
-async def test_agent_card_states_the_limits_of_each_motion_skill(client):
+async def test_agent_card_states_the_limits_in_an_extension(client):
     card = (await client.get("/.well-known/agent-card.json")).json()
-    skills = {s["id"]: s for s in card["skills"]}
+    (extension,) = card["capabilities"]["extensions"]
 
-    def limits(skill_id):
-        text = skills[skill_id]["description"].split("Limits: ")[1].split(" Request: ")[0]
-        return json.loads(text)
-
-    assert limits("move_to") == {
+    assert extension["uri"] == SAFETY_LIMITS_EXTENSION
+    assert not extension.get("required", False)  # data-only: clients need not activate it
+    assert extension["params"] == {
         "frame": "world",
         "workspace": {"min_xyz": [0.0, -0.5, 0.0], "max_xyz": [0.6, 0.5, 0.5]},
         "max_step_m": 0.05,
         "max_step_rad": 0.1,
         "skill_timeout_s": 5.0,
+        "stop_timeout_s": 2.0,
     }
-    assert limits("open") == limits("close") == {"skill_timeout_s": 5.0}
-    assert "Limits:" not in skills["observe"]["description"]
-    assert "Limits:" not in skills["stop"]["description"]

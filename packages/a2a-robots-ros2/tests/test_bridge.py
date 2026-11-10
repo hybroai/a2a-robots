@@ -329,7 +329,9 @@ async def test_a_failed_cancel_is_reported_and_retried(gateway):
         await run
 
 
-async def test_a_failed_cancel_over_json_rpc_fails_the_task(gateway):
+async def test_a_failed_cancel_over_json_rpc_fails_the_task(gateway, monkeypatch):
+    # a2a-adapter waits this long for the run to end before it fails the task.
+    monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 0.2)
     gateway.script = None
     gateway.cancel_fails = True
     app = to_a2a(bridge(gateway, stream_feedback=False))
@@ -341,14 +343,13 @@ async def test_a_failed_cancel_over_json_rpc_fails_the_task(gateway):
         await until(lambda: gateway.goals)
 
         body = {"jsonrpc": "2.0", "id": "1", "method": "tasks/cancel", "params": {"id": task_id}}
-        cancelled = (await client.post("/", json=body)).json()
-        assert "may still be running" in cancelled["error"]["message"]
-        for _ in range(100):  # the failed state is stored just after the reply
-            task = await rpc(client, "tasks/get", {"id": task_id})
-            if task["status"]["state"] != "working":
-                break
-            await asyncio.sleep(0.01)
+        cancelled = (await client.post("/", json=body)).json()["result"]
+        assert cancelled["status"]["state"] == "failed"
+        assert "may still be running" in cancelled["status"]["message"]["parts"][0]["text"]
+        task = await rpc(client, "tasks/get", {"id": task_id})
         assert task["status"]["state"] == "failed"
+        # The run is then cancelled and tries to cancel the goal again.
+        await until(lambda: gateway.goals[0].cancel_calls >= 2)
 
 
 async def test_a_cancel_that_times_out_is_not_treated_as_stopped(gateway):

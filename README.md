@@ -49,9 +49,18 @@ A skill that ran but did not succeed, or was refused before moving, is a complet
 | `slipped` | The backend lost the grasp. |
 | `unreachable` | The target could not be reached: the planner found no safe path, or the hand did not settle there. |
 
-A malformed request (unknown skill or hand, missing or extra fields, wrong units, a frame other than the workspace frame, or a non-unit quaternion) fails the A2A task, and nothing moves. A cancelled skill ends the task canceled; see Safety for when it ends failed instead.
+A malformed request (unknown skill or hand, missing or extra fields, wrong units, a frame other than the workspace frame, or a non-unit quaternion) fails the A2A task with the reason, and nothing moves. A cancelled skill ends the task canceled; see Safety for when it ends failed instead.
 
-The agent card states the limits a client must respect. The `move_to` description includes a `Limits:` JSON object with the workspace `frame`, the workspace box (`min_xyz`, `max_xyz`), `max_step_m`, `max_step_rad` and `skill_timeout_s`; `open` and `close` include `skill_timeout_s`.
+The agent card states the limits in a data-only [A2A extension](https://a2a-protocol.org/latest/topics/extensions/) under `capabilities.extensions`. It is not required, so clients need not activate it, and its URI is `a2a_robots.SAFETY_LIMITS_EXTENSION`:
+
+```json
+{"uri": "https://github.com/hybroai/a2a-robots/extensions/safety-limits/v1",
+ "required": false,
+ "params": {"frame": "world",
+   "workspace": {"min_xyz": [0.0, -0.5, 0.0], "max_xyz": [0.6, 0.5, 0.5]},
+   "max_step_m": 0.01, "max_step_rad": 0.05,
+   "skill_timeout_s": 10.0, "stop_timeout_s": 2.0}}
+```
 
 ## Safety
 
@@ -70,8 +79,9 @@ The limits come from `SafetyLimits`, passed to `RobotAdapter`:
 - One skill runs at a time per robot. A second motion request fails at once with `busy` instead of queueing.
 - `stop`, `tasks/cancel`, timeouts and shutdown all stop the backend. Backends run in a worker thread and poll a stop flag every control step, so stopping does not depend on cancelling a Python task.
 - `tasks/cancel` replies only after the motion has stopped and the hands are frozen, and the task is then canceled.
-- If the motion does not stop within `stop_timeout_s` (2 s by default), the hands are still told to hold, but the stop, cancel or timed-out skill fails with "the robot did not stop ... it may still be moving", and a cancelled task ends failed rather than canceled. No new motion starts until that motion ends.
-- If the backend raises during a motion, the hands are frozen and the task fails with the error.
+- If the motion does not stop within `stop_timeout_s` (2 s by default), the hands are still told to hold, but the stop or timed-out skill fails with "the robot did not stop ... it may still be moving". No new motion starts until that motion ends.
+- A `tasks/cancel` whose stop times out keeps waiting for the motion, up to a2a-adapter's cancel wait (10 s). If the motion ends by then the task is canceled; otherwise `tasks/cancel` returns the task failed with "Cancel failed: the robot did not stop ... it may still be moving".
+- If the backend raises during a motion, the hands are frozen and the task fails. The error is logged on the server; the client gets a message naming the task, because backend errors can hold internal details.
 - The adapter checks only the target pose. The path to it is the planner's job (see below); `MujocoPlanner` rejects paths that collide with the simulated scene. Real hardware also needs the robot's own safety checks.
 - `serve_robot()` binds `127.0.0.1` by default, because anyone who can reach the server can move the robot.
 

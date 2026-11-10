@@ -219,6 +219,25 @@ async def test_a_cancel_the_backend_ignores_raises_stop_error():
         await move
 
 
+async def test_a_cancelled_run_ends_only_after_the_motion_does():
+    """a2a-adapter reports a failed cancel as canceled once the run has ended,
+    so the run must outlast the motion, even past the skill timeout."""
+    backend = IgnoresStopBackend()
+    limits = make_limits(skill_timeout_s=0.1, stop_timeout_s=0.05)
+    controller = RobotController(backend, limits)
+    move = asyncio.create_task(controller.run(req("open", hand="right"), "t1"))
+    await asyncio.sleep(0.02)
+
+    with pytest.raises(StopError):
+        await controller.cancel("t1")
+    await asyncio.sleep(0.3)
+    assert not move.done()
+
+    backend.release.set()
+    with pytest.raises(SkillCancelled):
+        await asyncio.wait_for(move, 1)
+
+
 async def test_a_timeout_the_backend_ignores_fails_the_skill():
     backend = IgnoresStopBackend(steps=2)
     controller = RobotController(backend, make_limits(skill_timeout_s=0.05, stop_timeout_s=0.05))
