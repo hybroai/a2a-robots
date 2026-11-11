@@ -430,13 +430,18 @@ async def test_a_failed_cancel_is_not_reported_canceled_after_a_timeout(
         gateway.goals[0].finish("aborted")
 
 
-async def test_a_failed_cancel_is_not_reported_canceled_when_feedback_follows(gateway, monkeypatch):
+@pytest.mark.parametrize("timeout_s", [None, 0.15, 0.05])
+async def test_a_failed_cancel_is_not_reported_canceled_when_feedback_follows(
+    gateway, monkeypatch, timeout_s
+):
     """After a failed cancel, a2a-adapter closes the stream on its next line;
-    closing it must not end the call while the goal may still be running."""
+    closing it must not end the call while the goal may still be running,
+    also when the skill's timeout_s then fires during a2a-adapter's wait."""
     monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 0.3)
     gateway.script = None
     gateway.cancel_fails = True
-    app = to_a2a(bridge(gateway, max_feedback_hz=None))
+    skills = [{**SKILLS[0], "timeout_s": timeout_s}] if timeout_s else SKILLS
+    app = to_a2a(bridge(gateway, skills, max_feedback_hz=None))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://ros"
     ) as client:

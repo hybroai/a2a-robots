@@ -151,8 +151,14 @@ class Ros2BridgeAdapter(BaseA2AAdapter):
                 result = await self._call(call, args, emit)
         except TimeoutError:
             if call.cancel_requested:
+                await self._goal_ended(call)
                 raise CancelledByAdapterError(f"{spec.id} was cancelled") from None
             raise RosError(_timeout_detail(call)) from None
+        except asyncio.CancelledError:
+            # A closed stream, or the A2A server stopping the run after tasks/cancel.
+            if call.cancel_requested:
+                await self._goal_ended(call)
+            raise
         finally:
             del self._calls[task_id]
             self._busy.discard(spec.id)
@@ -206,8 +212,6 @@ class Ros2BridgeAdapter(BaseA2AAdapter):
             # tasks/cancel, a closed stream, a timeout or shutdown: the goal
             # must not keep running.
             await self._stop_goal(call)
-            if call.cancel_requested:
-                await self._goal_ended(call)
             raise
         return {"skill": skill, "status": outcome.status, "result": outcome.result}
 
@@ -216,10 +220,11 @@ class Ros2BridgeAdapter(BaseA2AAdapter):
 
         When tasks/cancel fails, a2a-adapter reports the task canceled if the
         call has already ended, so a cancelled call must not end while its goal
-        may still be running: not on a timeout, and not when the executor
-        closes the stream after the failed cancel. The executor waits a
-        bounded time and then fails the task; cancelling this wait again
-        ends the call.
+        may still be running: not on the skill timeout, and not when the
+        executor closes the stream after the failed cancel. ``_run`` waits
+        outside the skill timeout, so the timeout cannot cut this short. The
+        executor waits a bounded time and then fails the task; cancelling the
+        call again (e.g. on shutdown) ends the wait.
         """
         if call.goal is None or call.goal_cancelled:
             return
