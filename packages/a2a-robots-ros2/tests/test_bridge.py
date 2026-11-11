@@ -383,6 +383,44 @@ async def test_a_goal_whose_timeout_cancel_fails_says_it_may_still_run(gateway):
         await bridge(gateway, skills).invoke(request("rotate", theta=1.0), context=ctx())
 
 
+async def test_a_cancelled_call_that_times_out_waits_for_the_goal(gateway):
+    """a2a-adapter reports a failed cancel as canceled once the call has ended,
+    so a timeout must not end the call while the goal may still be running."""
+    gateway.script = None
+    gateway.cancel_fails = True
+    skills = [{**SKILLS[0], "timeout_s": 0.05}]
+    adapter = bridge(gateway, skills, stream_feedback=False)
+    run = asyncio.create_task(adapter.invoke(request("rotate", theta=1.0), context=ctx()))
+    await until(lambda: gateway.goals)
+    with pytest.raises(RosError, match="may still be running"):
+        await adapter.cancel(context=ctx())
+
+    await asyncio.sleep(0.2)  # past timeout_s
+    assert not run.done()
+    gateway.goals[0].finish("aborted")
+    with pytest.raises(CancelledByAdapterError):
+        await asyncio.wait_for(run, 1)
+
+
+async def test_a_failed_cancel_is_not_reported_canceled_after_a_timeout(gateway, monkeypatch):
+    monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 0.3)
+    gateway.script = None
+    gateway.cancel_fails = True
+    skills = [{**SKILLS[0], "timeout_s": 0.05}]
+    app = to_a2a(bridge(gateway, skills, stream_feedback=False))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://ros"
+    ) as client:
+        params = {**message(text_part("rotate", theta=1.0)), "configuration": {"blocking": False}}
+        task_id = (await rpc(client, "message/send", params))["id"]
+        await until(lambda: gateway.goals)
+
+        body = {"jsonrpc": "2.0", "id": "1", "method": "tasks/cancel", "params": {"id": task_id}}
+        cancelled = (await client.post("/", json=body)).json()["result"]
+        assert cancelled["status"]["state"] == "failed"
+        await until(lambda: gateway.goals[0].cancel_calls >= 2)
+
+
 async def test_cancel_while_the_goal_is_being_sent_cancels_it_once_accepted(gateway):
     gateway.script = None
     gateway.accept.clear()

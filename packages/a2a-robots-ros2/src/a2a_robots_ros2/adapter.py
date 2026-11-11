@@ -8,6 +8,7 @@ robot's own ROS stack enforces.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -149,6 +150,9 @@ class Ros2BridgeAdapter(BaseA2AAdapter):
             async with asyncio.timeout(spec.timeout_s):
                 result = await self._call(call, args, emit)
         except TimeoutError:
+            if call.cancel_requested:
+                await self._goal_ended(call)
+                raise CancelledByAdapterError(f"{spec.id} was cancelled") from None
             raise RosError(_timeout_detail(call)) from None
         finally:
             del self._calls[task_id]
@@ -204,6 +208,19 @@ class Ros2BridgeAdapter(BaseA2AAdapter):
             await self._stop_goal(call)
             raise
         return {"skill": skill, "status": outcome.status, "result": outcome.result}
+
+    async def _goal_ended(self, call: _Call) -> None:
+        """Wait, without a bound, until a goal whose cancel was not confirmed ends.
+
+        When tasks/cancel fails, a2a-adapter reports the task canceled if the
+        call has already ended, so a cancelled call must not end while its goal
+        may still be running. The executor waits a bounded time and then fails
+        the task, and cancelling this wait ends the call.
+        """
+        if call.goal is None or call.goal_cancelled:
+            return
+        with contextlib.suppress(Exception):
+            await call.goal.result()
 
     async def _cancel_goal(self, call: _Call) -> None:
         """Cancel the goal, sharing one request between callers that ask at
