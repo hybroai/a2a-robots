@@ -81,6 +81,7 @@ class FakeGateway(RosGateway):
         if self.reject:
             raise RosError("goal rejected by the action server")
         handle = FakeGoal(goal, self.cancel_finishes, self.cancel_fails)
+        handle.on_feedback = on_feedback
         self.goals.append(handle)
         for feedback in self.early_feedback:
             on_feedback(feedback)
@@ -350,6 +351,7 @@ async def test_a_failed_cancel_over_json_rpc_fails_the_task(gateway, monkeypatch
         assert task["status"]["state"] == "failed"
         # The run is then cancelled and tries to cancel the goal again.
         await until(lambda: gateway.goals[0].cancel_calls >= 2)
+        gateway.goals[0].finish("aborted")
 
 
 async def test_a_cancel_that_times_out_is_not_treated_as_stopped(gateway):
@@ -370,9 +372,12 @@ async def test_a_cancel_that_times_out_is_not_treated_as_stopped(gateway):
     with pytest.raises(RosError, match="may still be running"):
         await adapter.cancel(context=ctx())
     run.cancel()  # what the A2A server does next; it retries the cancel
+    await until(lambda: goal.cancel_calls == 2)
+    await asyncio.sleep(0.05)
+    assert not run.done()  # the goal may still be running
+    goal.finish("aborted")
     with pytest.raises(asyncio.CancelledError):
-        await run
-    assert goal.cancel_calls == 2
+        await asyncio.wait_for(run, 1)
 
 
 async def test_a_goal_whose_timeout_cancel_fails_says_it_may_still_run(gateway):
@@ -402,12 +407,15 @@ async def test_a_cancelled_call_that_times_out_waits_for_the_goal(gateway):
         await asyncio.wait_for(run, 1)
 
 
-async def test_a_failed_cancel_is_not_reported_canceled_after_a_timeout(gateway, monkeypatch):
+@pytest.mark.parametrize("stream_feedback", [True, False])
+async def test_a_failed_cancel_is_not_reported_canceled_after_a_timeout(
+    gateway, monkeypatch, stream_feedback
+):
     monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 0.3)
     gateway.script = None
     gateway.cancel_fails = True
     skills = [{**SKILLS[0], "timeout_s": 0.05}]
-    app = to_a2a(bridge(gateway, skills, stream_feedback=False))
+    app = to_a2a(bridge(gateway, skills, stream_feedback=stream_feedback))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://ros"
     ) as client:
@@ -419,6 +427,34 @@ async def test_a_failed_cancel_is_not_reported_canceled_after_a_timeout(gateway,
         cancelled = (await client.post("/", json=body)).json()["result"]
         assert cancelled["status"]["state"] == "failed"
         await until(lambda: gateway.goals[0].cancel_calls >= 2)
+        gateway.goals[0].finish("aborted")
+
+
+async def test_a_failed_cancel_is_not_reported_canceled_when_feedback_follows(gateway, monkeypatch):
+    """After a failed cancel, a2a-adapter closes the stream on its next line;
+    closing it must not end the call while the goal may still be running."""
+    monkeypatch.setattr("a2a_adapter.executor._CANCEL_SETTLE_TIMEOUT", 0.3)
+    gateway.script = None
+    gateway.cancel_fails = True
+    app = to_a2a(bridge(gateway, max_feedback_hz=None))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://ros"
+    ) as client:
+        params = {**message(text_part("rotate", theta=1.0)), "configuration": {"blocking": False}}
+        task_id = (await rpc(client, "message/send", params))["id"]
+        await until(lambda: gateway.goals)
+        goal = gateway.goals[0]
+
+        body = {"jsonrpc": "2.0", "id": "1", "method": "tasks/cancel", "params": {"id": task_id}}
+        cancelling = asyncio.create_task(client.post("/", json=body))
+        await until(lambda: goal.cancel_calls >= 1)
+        await asyncio.sleep(0.02)  # cancel() has raised; the executor waits for the run
+        goal.on_feedback({"remaining": 0.5})
+        cancelled = (await cancelling).json()["result"]
+        assert cancelled["status"]["state"] == "failed"
+        assert "may still be running" in cancelled["status"]["message"]["parts"][0]["text"]
+        await until(lambda: goal.cancel_calls >= 2)  # retried when the stream closed
+        goal.finish("aborted")
 
 
 async def test_cancel_while_the_goal_is_being_sent_cancels_it_once_accepted(gateway):
