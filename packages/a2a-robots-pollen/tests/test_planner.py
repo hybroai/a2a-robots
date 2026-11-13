@@ -1,3 +1,4 @@
+import math
 import threading
 import time
 
@@ -113,10 +114,9 @@ def test_backend_uses_custom_planner_and_validates_joint_names():
     backend = Reachy2Backend(reachy, realtime=False, planner=bad_planner)
     target = backend.observe()["right"].pose
 
-    outcome = backend.move_to("right", target, threading.Event())
+    with pytest.raises(ValueError, match="expected"):
+        backend.move_to("right", target, threading.Event())
     assert bad_planner.calls == 1
-    assert outcome.failure_code is FailureCode.UNREACHABLE
-    assert "expected" in outcome.detail
 
 
 def test_backend_executes_valid_custom_planner_trajectory():
@@ -166,3 +166,39 @@ def test_fk_failure_during_plan_converts_to_unreachable():
         planner.plan("right", start, start_pose, 0.02)
 
     assert exc_info.value.failure_code is FailureCode.UNREACHABLE
+
+
+def test_far_ik_configuration_is_rejected():
+    """An elbow-flip-sized joint jump for a small pose step must not be streamed."""
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    joints = hand_joints("right")
+    q0 = reachy.r_arm.get_current_positions(degrees=False)
+    start = dict(zip(joints, q0, strict=True))
+    start_pose = matrix_to_pose(reachy.r_arm.forward_kinematics(q0, degrees=False), "world")
+    target = _offset_pose(start_pose, dz=0.01)
+
+    far = list(q0)
+    far[0] = q0[0] + math.pi
+
+    def flipped_ik(target_matrix, q0=None, degrees=True):
+        del target_matrix, q0, degrees
+        return far
+
+    reachy.r_arm.inverse_kinematics = flipped_ik  # type: ignore[method-assign]
+    # FK of the far config will not match the nearby target, so stub FK to the target
+    # pose so only the joint-delta gate rejects the plan.
+    target_mat = pose_to_matrix(target)
+
+    def matching_fk(joints_positions=None, degrees=True):
+        del joints_positions, degrees
+        return target_mat
+
+    reachy.r_arm.forward_kinematics = matching_fk  # type: ignore[method-assign]
+    planner = Reachy2Planner({"right": reachy.r_arm}, max_joint_delta_rad=1.0)
+
+    with pytest.raises(PlanError) as exc_info:
+        planner.plan("right", start, target, 0.02)
+
+    assert exc_info.value.failure_code is FailureCode.UNREACHABLE
+    assert "joint step" in exc_info.value.detail

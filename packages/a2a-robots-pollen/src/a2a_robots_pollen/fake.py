@@ -158,7 +158,8 @@ class FakeGripper:
             raise ValueError("opening percentage must be between 0 and 100")
         target = float(percentage)
         if not self._is_on:
-            return
+            # Match reachy2-sdk ParallelGripper.set_opening when the gripper is off.
+            raise RuntimeError("Gripper is off. Opening value not sent.")
         self.goal_position = target
 
         closing = target < self.opening

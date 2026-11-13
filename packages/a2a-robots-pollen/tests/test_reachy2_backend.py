@@ -225,6 +225,35 @@ def test_hold_and_shutdown():
     assert reachy.is_connected() is False
 
 
+def test_hold_attempts_every_hand_when_one_gripper_is_off():
+    reachy = FakeReachySDK()
+    assert reachy.l_arm is not None and reachy.r_arm is not None
+    reachy.l_arm.gripper.turn_off()
+    backend = Reachy2Backend(reachy, realtime=False, turn_on=False)
+    before_r = reachy.r_arm.cancel_count
+
+    with pytest.raises(RuntimeError, match="Gripper is off"):
+        backend.hold()
+
+    assert reachy.r_arm.cancel_count == before_r + 1
+
+
+def test_hold_keeps_commanded_squeeze_while_grasping():
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    backend = Reachy2Backend(reachy, realtime=False)
+    right_pos = backend.observe()["right"].pose.position
+    reachy.place_object("cube", right_pos, opening_pct=40.0)
+    assert backend.close("right", threading.Event()).failure_code is None
+    assert backend.observe()["right"].held is True
+    reachy.r_arm.gripper.goal_position = 0.0
+
+    backend.hold()
+
+    assert reachy.r_arm.gripper.goal_position == 0.0
+    assert backend.observe()["right"].held is True
+
+
 def test_forward_kinematics_always_passes_explicit_seven_radians():
     """Verify the reachy2-sdk 1.0.15 forward_kinematics(None) bug is bypassed."""
     recorded_calls: list[tuple[object, bool]] = []
@@ -424,6 +453,32 @@ def test_lagging_empty_air_gripper_finishes_closing_without_false_hold():
     assert state.contact == {}
 
 
+def test_delayed_mid_range_start_is_not_a_false_grasp():
+    """A half-open start plus delayed first responses must not report held=True."""
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    gripper = reachy.r_arm.gripper
+    gripper.opening = 50.0
+    real_set_opening = gripper.set_opening
+    calls = {"n": 0}
+
+    def delayed_set_opening(percentage: float) -> None:
+        calls["n"] += 1
+        # Ignore the first several commands so opening stays at 50% through grasp_settle_s.
+        if calls["n"] > 15:
+            real_set_opening(percentage)
+
+    gripper.set_opening = delayed_set_opening  # type: ignore[method-assign]
+    backend = Reachy2Backend(reachy, realtime=False, settle_time_s=1.0)
+
+    outcome = backend.close("right", threading.Event())
+
+    assert outcome.failure_code is None
+    assert backend.observe()["right"].held is False
+    assert backend.observe()["right"].contact == {}
+    assert gripper.opening <= 2.0
+
+
 def test_gripper_encoder_overshoot_is_clamped():
     reachy = FakeReachySDK()
     assert reachy.r_arm is not None
@@ -438,14 +493,14 @@ def test_gripper_encoder_overshoot_is_clamped():
     reachy.r_arm.gripper.set_opening = recording_set_opening  # type: ignore[method-assign]
     backend = Reachy2Backend(reachy, realtime=False)
 
-    # Overshoot above 100% during hold() and close()
+    # Overshoot above 100% during hold() when not grasping
     reachy.r_arm.gripper.opening = 100.5
     backend.hold()
     assert seen_targets[-1] == 100.0
     assert backend.close("right", threading.Event()).failure_code is None
 
-    # Undershoot below 0% during hold() and open()
+    # After open(), undershoot below 0% during hold() is clamped
+    assert backend.open("right", threading.Event()).failure_code is None
     reachy.r_arm.gripper.opening = -0.5
     backend.hold()
     assert seen_targets[-1] == 0.0
-    assert backend.open("right", threading.Event()).failure_code is None

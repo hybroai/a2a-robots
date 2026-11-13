@@ -120,14 +120,22 @@ class Reachy2Planner(Planner):
         *,
         frame: str = "world",
         max_speed_rad_s: float = 0.25,
+        max_joint_delta_rad: float = 1.0,
         position_tolerance_m: float = 0.005,
         orientation_tolerance_rad: float = 0.05,
     ) -> None:
+        """``max_joint_delta_rad`` rejects IK solutions that jump farther than this
+        on any joint from the start configuration. Adapter Cartesian step limits do
+        not bound joint travel, so without this an elbow flip or wrist wrap for a
+        small pose step would stream a long arc with ``check_positions=False``."""
         if max_speed_rad_s <= 0.0:
             raise ValueError("max_speed_rad_s must be positive")
+        if max_joint_delta_rad <= 0.0:
+            raise ValueError("max_joint_delta_rad must be positive")
         self._arms = dict(arms)
         self._frame = frame
         self._max_speed_rad_s = max_speed_rad_s
+        self._max_joint_delta_rad = max_joint_delta_rad
         self._position_tolerance_m = position_tolerance_m
         self._orientation_tolerance_rad = orientation_tolerance_rad
 
@@ -165,6 +173,13 @@ class Reachy2Planner(Planner):
         pos_err, ori_err = pose_error(reached, target)
         if pos_err > self._position_tolerance_m or ori_err > self._orientation_tolerance_rad:
             raise PlanError(FailureCode.UNREACHABLE, "no joint solution reaches the target")
+
+        for start_q, goal_q in zip(q0, goal, strict=True):
+            if abs(goal_q - start_q) > self._max_joint_delta_rad:
+                raise PlanError(
+                    FailureCode.UNREACHABLE,
+                    "joint solution requires too large a joint step",
+                )
 
         speeds = [self._max_speed_rad_s] * len(joints)
         points = interpolate(q0, goal, speeds, dt)

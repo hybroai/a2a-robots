@@ -28,7 +28,14 @@ def _clamp_opening(pct: float) -> float:
 
 
 def connect(host: str = "localhost", **kwargs: Any) -> Any:
-    """Connect to a live or simulated Reachy 2 gRPC server."""
+    """Connect to a live or simulated Reachy 2 gRPC server.
+
+    Extra kwargs such as ``sdk_port``, ``audio_port``, and ``video_port`` are
+    forwarded to ``ReachySDK.__init__``. In ``reachy2-sdk`` 1.0.15,
+    ``ReachySDK.__new__`` only accepts ``host`` and ``fake_only``, so a direct
+    ``ReachySDK(host, sdk_port=...)`` call raises ``TypeError``; this helper
+    retries via ``__new__``/``__init__`` so those ports still work.
+    """
     try:
         from reachy2_sdk import ReachySDK
     except ModuleNotFoundError as exc:
@@ -64,6 +71,7 @@ class Reachy2Backend(RobotBackend):
         position_tolerance_m: float = 0.005,
         orientation_tolerance_rad: float = 0.05,
         max_speed_rad_s: float = 0.25,
+        max_joint_delta_rad: float = 1.0,
         closed_opening_pct: float = 2.0,
         open_opening_pct: float = 95.0,
         gripper_step_pct: float = 10.0,
@@ -141,6 +149,7 @@ class Reachy2Backend(RobotBackend):
             arms,
             frame=frame,
             max_speed_rad_s=max_speed_rad_s,
+            max_joint_delta_rad=max_joint_delta_rad,
             position_tolerance_m=position_tolerance_m,
             orientation_tolerance_rad=orientation_tolerance_rad,
         )
@@ -220,9 +229,8 @@ class Reachy2Backend(RobotBackend):
                 return MotionOutcome(error.failure_code, error.detail)
 
         if tuple(trajectory.joints) != expected_joints:
-            return MotionOutcome(
-                FailureCode.UNREACHABLE,
-                f"planner returned joints {trajectory.joints!r}, expected {expected_joints!r}",
+            raise ValueError(
+                f"planner returned joints {trajectory.joints!r}, expected {expected_joints!r}"
             )
 
         points = trajectory.points
@@ -281,18 +289,23 @@ class Reachy2Backend(RobotBackend):
         )
         gripper = self._arms[hand].gripper
         touched = False
+        moved_from_start = False
         stalled_steps = 0
         prev_actual_pct: float | None = None
 
         def track(step: int) -> bool:
-            nonlocal touched, stalled_steps, prev_actual_pct
+            nonlocal touched, moved_from_start, stalled_steps, prev_actual_pct
             fraction = min(1.0, (step + 1) / steps)
             target_pct = _clamp_opening(start_opening * (1.0 - fraction))
             gripper.set_opening(target_pct)
             actual_pct = self._gripper_opening(hand)
-            # A stall is the opening not shrinking while still short of the target.
+            if abs(actual_pct - start_opening) >= 0.5:
+                moved_from_start = True
+            # Ignore stalls until the opening has left start_opening: a mid-range
+            # start plus command/state latency would otherwise look like a grasp.
             if (
-                prev_actual_pct is not None
+                moved_from_start
+                and prev_actual_pct is not None
                 and abs(actual_pct - prev_actual_pct) < 0.5
                 and actual_pct - target_pct > 1.0
                 and self._closed_opening_pct < actual_pct < self._open_opening_pct
@@ -326,14 +339,28 @@ class Reachy2Backend(RobotBackend):
 
     def hold(self) -> None:
         with self._lock:
+            # Attempt every hand even if one raises: stop/cancel must freeze both
+            # arms. Re-raise the first error after the loop.
+            errors: list[BaseException] = []
             for hand in self._hands:
-                arm = self._arms[hand]
-                if hasattr(arm, "cancel_all_goto"):
-                    arm.cancel_all_goto()
-                if hasattr(arm.gripper, "cancel_all_goto"):
-                    arm.gripper.cancel_all_goto()
-                self._write_arm_radians(hand, self._read_arm_radians(hand))
-                arm.gripper.set_opening(_clamp_opening(self._gripper_opening(hand)))
+                try:
+                    arm = self._arms[hand]
+                    if hasattr(arm, "cancel_all_goto"):
+                        arm.cancel_all_goto()
+                    if hasattr(arm.gripper, "cancel_all_goto"):
+                        arm.gripper.cancel_all_goto()
+                    self._write_arm_radians(hand, self._read_arm_radians(hand))
+                    # Keep the commanded squeeze while grasping. cancel_all_goto
+                    # and re-writing the measured opening (e.g. 40% on an object)
+                    # would open the goal from 0% and can drop the object on stop.
+                    if hand in self._closed_hands:
+                        arm.gripper.set_opening(0.0)
+                    else:
+                        arm.gripper.set_opening(_clamp_opening(self._gripper_opening(hand)))
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise errors[0]
 
     def shutdown(self) -> None:
         with self._lock:
