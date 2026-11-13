@@ -37,7 +37,13 @@ def connect(host: str = "localhost", **kwargs: Any) -> Any:
             "install it with `pip install reachy2-sdk`"
         ) from exc
 
-    reachy = ReachySDK(host=host, **kwargs)
+    try:
+        reachy = ReachySDK(host=host, **kwargs)
+    except TypeError:
+        # In reachy2-sdk 1.0.15, __init__ accepts sdk_port/audio_port/video_port,
+        # while __new__(cls, host, fake_only=False) rejects those kwargs.
+        reachy = ReachySDK.__new__(ReachySDK, host, fake_only=bool(kwargs.get("fake_only", False)))
+        ReachySDK.__init__(reachy, host=host, **kwargs)
     if hasattr(reachy, "is_connected") and not reachy.is_connected():
         raise ConnectionError(f"failed to connect to Reachy 2 gRPC server at {host!r}")
     return reachy
@@ -167,8 +173,9 @@ class Reachy2Backend(RobotBackend):
 
     def _hand_pose(self, hand: str) -> Pose:
         arm = self._arms[hand]
-        # Pass explicit 7-element joint angles in radians to work around
-        # reachy2-sdk 1.0.15 reading the gripper inside forward_kinematics(None).
+        # Pass explicit 7-element joint angles in radians: in reachy2-sdk 1.0.15,
+        # forward_kinematics(None, degrees=False) reads cached degree values
+        # (including the gripper in arm._actuators) without converting to radians.
         q_rad = self._read_arm_radians(hand)
         matrix = np.asarray(arm.forward_kinematics(q_rad, degrees=False), dtype=np.float64)
         return matrix_to_pose(matrix, self._frame)
