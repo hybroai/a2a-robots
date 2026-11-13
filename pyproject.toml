@@ -40,7 +40,7 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["a2a_robots", "a2a_robots_ros2", "a2a_robots_sharpa"]
+known-first-party = ["a2a_robots", "a2a_robots_pollen", "a2a_robots_ros2", "a2a_robots_sharpa"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

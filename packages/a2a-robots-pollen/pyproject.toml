@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "a2a-robots-pollen"
+version = "0.1.0"
+description = "Pollen Robotics Reachy 2 backend for a2a-robots"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "HYBRO AI", email = "info@hybro.ai" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["a2a-robots", "numpy>=1.26", "reachy2-sdk>=1.0.15,<2"]
+
+[project.urls]
+Repository = "https://github.com/hybroai/a2a-robots"
+
+[tool.uv.sources]
+a2a-robots = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/a2a_robots_pollen"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
