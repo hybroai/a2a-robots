@@ -188,8 +188,10 @@ class Reachy2Backend(RobotBackend):
         )
         if not held:
             return False, {}
-        force = round((100.0 - opening) / 10.0, 4)
-        return True, {"finger": force}
+        # ParallelGripper does not report measured contact force, so expose an
+        # opening-derived proxy estimate rather than a physical sensor reading.
+        estimated_force = round((100.0 - opening) / 10.0, 4)
+        return True, {"finger": estimated_force}
 
     def observe(self) -> dict[str, HandState]:
         with self._lock:
