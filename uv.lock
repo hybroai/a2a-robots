@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "a2a-robots",
+    "a2a-robots-pollen",
     "a2a-robots-ros2",
     "a2a-robots-sharpa",
 ]
@@ -56,6 +57,22 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "a2a-robots-pollen"
+version = "0.1.0"
+source = { editable = "packages/a2a-robots-pollen" }
+dependencies = [
+    { name = "a2a-robots" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "a2a-robots", editable = "." },
+    { name = "numpy", specifier = ">=1.26" },
+]
 
 [[package]]
 name = "a2a-robots-ros2"

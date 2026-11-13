@@ -24,6 +24,10 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run pytest
+      - run: uv run pytest packages/a2a-robots-pollen
+      - run: uv run --isolated --with "reachy2-sdk>=1.0.15,<2" --with pytest --with pytest-asyncio --with-editable packages/a2a-robots-pollen pytest packages/a2a-robots-pollen/tests/test_reachy2_sdk_grpc.py
+        env:
+          A2A_ROBOTS_REQUIRE_REACHY2_SDK: "1"
       - run: uv run pytest packages/a2a-robots-ros2
       - uses: actions/cache@v4
         with:
