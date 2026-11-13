@@ -18,7 +18,9 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["a2a-robots", "numpy>=1.26", "reachy2-sdk>=1.0.15,<2"]
+# reachy2-sdk pins lagging upper bounds on numpy, protobuf and grpcio, so it is
+# installed separately for live/simulated gRPC connections rather than in the workspace lockfile.
+dependencies = ["a2a-robots", "numpy>=1.26"]
 
 [project.urls]
 Repository = "https://github.com/hybroai/a2a-robots"

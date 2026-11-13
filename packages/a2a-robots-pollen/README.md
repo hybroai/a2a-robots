@@ -13,7 +13,7 @@
 
 ## Usage
 
-Connect to a Reachy 2 gRPC server (real robot or Pollen's Docker simulation) or run offline with `FakeReachySDK`:
+Offline tests and `FakeReachySDK` work out of the box. To connect to a live or simulated Reachy 2 gRPC server, also install `reachy2-sdk` (kept out of the workspace lockfile because its upstream metadata pins older `numpy`, `protobuf`, and `grpcio` versions):
 
 ```bash
 uv sync --all-packages --extra dev
@@ -21,7 +21,8 @@ uv sync --all-packages --extra dev
 # Offline with the built-in test double:
 REACHY2_FAKE=1 uv run python packages/a2a-robots-pollen/examples/serve_reachy2.py
 
-# Live / simulated Reachy 2 gRPC server:
+# Live / simulated Reachy 2 gRPC server (with reachy2-sdk installed):
+uv pip install "reachy2-sdk>=1.0.15,<2"
 REACHY2_HOST=localhost uv run python packages/a2a-robots-pollen/examples/serve_reachy2.py
 ```
 

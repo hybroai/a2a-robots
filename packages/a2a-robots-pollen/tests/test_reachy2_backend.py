@@ -1,6 +1,8 @@
 import asyncio
+import sys
 import threading
 from collections.abc import Callable
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -314,9 +316,15 @@ def test_disconnected_sdk_raises_connection_error(monkeypatch):
     with pytest.raises(ConnectionError, match="not connected"):
         Reachy2Backend(disconnected, realtime=False)
 
-    monkeypatch.setattr("reachy2_sdk.ReachySDK", lambda host, **kw: disconnected)
+    monkeypatch.setitem(
+        sys.modules, "reachy2_sdk", SimpleNamespace(ReachySDK=lambda host, **kw: disconnected)
+    )
     with pytest.raises(ConnectionError, match="failed to connect"):
         connect("unreachable-host")
+
+    monkeypatch.setitem(sys.modules, "reachy2_sdk", None)
+    with pytest.raises(ModuleNotFoundError, match="reachy2-sdk is required"):
+        connect("localhost")
 
 
 def test_numeric_parameter_validation():

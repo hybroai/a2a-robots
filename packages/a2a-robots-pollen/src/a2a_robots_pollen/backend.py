@@ -29,7 +29,13 @@ def _clamp_opening(pct: float) -> float:
 
 def connect(host: str = "localhost", **kwargs: Any) -> Any:
     """Connect to a live or simulated Reachy 2 gRPC server."""
-    from reachy2_sdk import ReachySDK
+    try:
+        from reachy2_sdk import ReachySDK
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "reachy2-sdk is required to connect to a Reachy 2 robot; "
+            "install it with `pip install reachy2-sdk`"
+        ) from exc
 
     reachy = ReachySDK(host=host, **kwargs)
     if hasattr(reachy, "is_connected") and not reachy.is_connected():
