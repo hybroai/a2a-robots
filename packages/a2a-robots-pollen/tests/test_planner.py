@@ -1,4 +1,3 @@
-import math
 import threading
 import time
 
@@ -145,5 +144,5 @@ def test_backend_executes_valid_custom_planner_trajectory():
     assert outcome.failure_code is None
     assert custom.calls == 1
     assert reachy.r_arm.get_current_positions(degrees=False)[0] == pytest.approx(
-        math.degrees(0.0) * 0.0 + float(q_goal[0]), abs=1e-6
+        float(q_goal[0]), abs=1e-6
     )

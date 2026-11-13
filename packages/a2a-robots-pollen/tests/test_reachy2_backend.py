@@ -1,7 +1,5 @@
 import asyncio
-import math
 import threading
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -138,6 +136,76 @@ def test_close_reports_slipped_when_object_slips_out():
     assert backend.observe()["right"].held is False
 
 
+class _StopAfter(threading.Event):
+    """Set itself on the N-th poll, matching BackendContract's StopAfter."""
+
+    def __init__(self, polls: int) -> None:
+        super().__init__()
+        self._polls = 0
+        self._limit = polls
+
+    def _poll(self) -> None:
+        self._polls += 1
+        if self._polls >= self._limit:
+            self.set()
+
+    def is_set(self) -> bool:
+        self._poll()
+        return super().is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self._poll()
+        return super().wait(timeout)
+
+
+def test_stopped_close_does_not_report_held():
+    backend = Reachy2Backend(FakeReachySDK(), realtime=False, min_gripper_steps=20)
+    assert backend.open("right", threading.Event()).failure_code is None
+
+    outcome = backend.close("right", _StopAfter(3))
+
+    assert outcome.failure_code is FailureCode.STOPPED
+    state = backend.observe()["right"]
+    assert state.held is False
+    assert state.contact == {}
+
+
+def test_stopped_open_keeps_held_while_grasping():
+    reachy = FakeReachySDK()
+    backend = Reachy2Backend(reachy, realtime=False, min_gripper_steps=20)
+    right_pos = backend.observe()["right"].pose.position
+    reachy.place_object("cube", right_pos, opening_pct=40.0)
+    assert backend.close("right", threading.Event()).failure_code is None
+    assert backend.observe()["right"].held is True
+
+    outcome = backend.open("right", _StopAfter(3))
+
+    assert outcome.failure_code is FailureCode.STOPPED
+    state = backend.observe()["right"]
+    assert state.held is True
+    assert state.contact
+
+
+def test_open_and_close_timeout_when_gripper_stuck():
+    reachy = FakeReachySDK()
+    backend = Reachy2Backend(reachy, realtime=False)
+    assert reachy.r_arm is not None
+    reachy.r_arm.gripper.set_opening = lambda pct: None  # type: ignore[method-assign]
+
+    # Stuck nearly closed: open never reaches the open threshold.
+    reachy.r_arm.gripper.opening = 10.0
+    opened = backend.open("right", threading.Event())
+    assert opened.failure_code is FailureCode.TIMEOUT
+    assert reachy.r_arm.gripper.opening == 10.0
+
+    # Stuck fully open: close never reaches the closed threshold, and opening
+    # stays at/above open_opening_pct so the stall is not mistaken for a grasp.
+    reachy.r_arm.gripper.opening = 100.0
+    closed = backend.close("right", threading.Event())
+    assert closed.failure_code is FailureCode.TIMEOUT
+    assert backend.observe()["right"].held is False
+
+
 def test_hold_and_shutdown():
     reachy = FakeReachySDK()
     assert reachy.l_arm is not None and reachy.r_arm is not None
@@ -237,4 +305,3 @@ async def test_controller_and_adapter_end_to_end():
     adapter = RobotAdapter(backend, limits, name="Reachy 2 Test")
     assert adapter.get_metadata().name == "Reachy 2 Test"
     await asyncio.wait_for(adapter.close(), 1)
-    assert math.isclose(SimpleNamespace(val=math.degrees(math.pi)).val, 180.0)

@@ -193,7 +193,6 @@ class Reachy2Backend(RobotBackend):
     def open(self, hand: str, stop: Event) -> MotionOutcome:
         with self._lock:
             start_opening = self._gripper_opening(hand)
-            self._closed_hands.discard(hand)
 
         steps = max(
             self._min_gripper_steps,
@@ -207,15 +206,20 @@ class Reachy2Backend(RobotBackend):
             gripper.set_opening(target_pct)
             return step >= steps - 1 and self._gripper_opening(hand) >= self._open_opening_pct
 
-        self._run(stop, track, extra_steps=steps)
+        settled = self._run(stop, track, extra_steps=steps)
         if stop.is_set():
             return MotionOutcome(FailureCode.STOPPED, "motion stopped before completion")
+        if not settled:
+            return MotionOutcome(FailureCode.TIMEOUT, "the gripper did not settle")
+        with self._lock:
+            # Clear grasp state only after a successful open, so a stopped or
+            # timed-out open does not claim the hand released an object.
+            self._closed_hands.discard(hand)
         return MotionOutcome()
 
     def close(self, hand: str, stop: Event) -> MotionOutcome:
         with self._lock:
             start_opening = self._gripper_opening(hand)
-            self._closed_hands.add(hand)
 
         steps = max(
             self._min_gripper_steps,
@@ -237,11 +241,16 @@ class Reachy2Backend(RobotBackend):
                 touched = True
             return step >= steps - 1 and (actual_pct <= self._closed_opening_pct or touched)
 
-        self._run(stop, track, extra_steps=steps)
+        settled = self._run(stop, track, extra_steps=steps)
         if stop.is_set():
             return MotionOutcome(FailureCode.STOPPED, "motion stopped before completion")
+        if not settled:
+            return MotionOutcome(FailureCode.TIMEOUT, "the gripper did not settle")
 
         with self._lock:
+            # Mark the hand closed only after settle, so a stopped mid-close
+            # never reports held=True from a partial opening.
+            self._closed_hands.add(hand)
             held, _ = self._grasp_state(hand)
         if touched and not held:
             return MotionOutcome(FailureCode.SLIPPED, "object slipped during the grasp")
