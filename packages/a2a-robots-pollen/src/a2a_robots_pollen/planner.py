@@ -148,20 +148,19 @@ class Reachy2Planner(Planner):
 
         try:
             solution = arm.inverse_kinematics(target_matrix, q0=q0, degrees=False)
+            goal = [float(value) for value in solution]
+            if len(goal) != len(joints):
+                raise PlanError(
+                    FailureCode.UNREACHABLE, "inverse kinematics returned wrong joint count"
+                )
+            # Always pass explicit 7-element joint angles in radians because
+            # reachy2-sdk 1.0.15 has a bug when forward_kinematics() reads present state.
+            fk_matrix = np.asarray(arm.forward_kinematics(goal, degrees=False), dtype=np.float64)
         except (ValueError, RuntimeError) as exc:
             raise PlanError(
                 FailureCode.UNREACHABLE, "no joint solution reaches the target"
             ) from exc
 
-        goal = [float(value) for value in solution]
-        if len(goal) != len(joints):
-            raise PlanError(
-                FailureCode.UNREACHABLE, "inverse kinematics returned wrong joint count"
-            )
-
-        # Always pass explicit 7-element joint angles in radians because
-        # reachy2-sdk 1.0.15 has a bug when forward_kinematics() reads present state.
-        fk_matrix = np.asarray(arm.forward_kinematics(goal, degrees=False), dtype=np.float64)
         reached = matrix_to_pose(fk_matrix, target.frame or self._frame)
         pos_err, ori_err = pose_error(reached, target)
         if pos_err > self._position_tolerance_m or ori_err > self._orientation_tolerance_rad:

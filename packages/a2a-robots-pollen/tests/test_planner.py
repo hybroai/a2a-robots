@@ -146,3 +146,23 @@ def test_backend_executes_valid_custom_planner_trajectory():
     assert reachy.r_arm.get_current_positions(degrees=False)[0] == pytest.approx(
         float(q_goal[0]), abs=1e-6
     )
+
+
+def test_fk_failure_during_plan_converts_to_unreachable():
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    joints = hand_joints("right")
+    q0 = reachy.r_arm.get_current_positions(degrees=False)
+    start = dict(zip(joints, q0, strict=True))
+    start_pose = matrix_to_pose(reachy.r_arm.forward_kinematics(q0, degrees=False), "world")
+
+    def broken_fk(*args, **kwargs):
+        raise ValueError("No solution found for the given joints")
+
+    reachy.r_arm.forward_kinematics = broken_fk  # type: ignore[method-assign]
+    planner = Reachy2Planner({"right": reachy.r_arm})
+
+    with pytest.raises(PlanError) as exc_info:
+        planner.plan("right", start, start_pose, 0.02)
+
+    assert exc_info.value.failure_code is FailureCode.UNREACHABLE

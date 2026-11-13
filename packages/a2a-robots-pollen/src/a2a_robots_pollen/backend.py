@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from collections.abc import Callable, Iterable, Sequence
 from threading import Event
 from typing import Any
@@ -22,11 +23,18 @@ from a2a_robots_pollen.planner import (
 HAND_ATTRS: dict[str, str] = {"left": "l_arm", "right": "r_arm"}
 
 
+def _clamp_opening(pct: float) -> float:
+    return min(100.0, max(0.0, float(pct)))
+
+
 def connect(host: str = "localhost", **kwargs: Any) -> Any:
     """Connect to a live or simulated Reachy 2 gRPC server."""
     from reachy2_sdk import ReachySDK
 
-    return ReachySDK(host=host, **kwargs)
+    reachy = ReachySDK(host=host, **kwargs)
+    if hasattr(reachy, "is_connected") and not reachy.is_connected():
+        raise ConnectionError(f"failed to connect to Reachy 2 gRPC server at {host!r}")
+    return reachy
 
 
 class Reachy2Backend(RobotBackend):
@@ -48,9 +56,37 @@ class Reachy2Backend(RobotBackend):
         open_opening_pct: float = 95.0,
         gripper_step_pct: float = 10.0,
         min_gripper_steps: int = 5,
+        contact_stall_s: float = 0.1,
+        grasp_settle_s: float = 0.2,
         turn_on: bool = True,
         planner: Planner | None = None,
     ) -> None:
+        """``contact_stall_s`` is how long the gripper must stop closing short of its
+        target before ``close`` counts it as touching something; shorter stalls (a
+        late state update, brief friction) are ignored. ``grasp_settle_s`` is how
+        long it must stay stalled to count as a grasp. A stall that passes the first
+        threshold but then closes past the object before the second is ``slipped``.
+        The gripper only reports its opening, so a lag lasting between the two
+        durations that then catches up in empty air also reads as ``slipped``."""
+        if hasattr(reachy, "is_connected") and not reachy.is_connected():
+            raise ConnectionError("Reachy SDK instance is not connected")
+        if control_dt <= 0.0:
+            raise ValueError("control_dt must be positive")
+        if settle_time_s < 0.0:
+            raise ValueError("settle_time_s must be non-negative")
+        if position_tolerance_m <= 0.0:
+            raise ValueError("position_tolerance_m must be positive")
+        if orientation_tolerance_rad <= 0.0:
+            raise ValueError("orientation_tolerance_rad must be positive")
+        if gripper_step_pct <= 0.0:
+            raise ValueError("gripper_step_pct must be positive")
+        if not (0.0 <= closed_opening_pct < open_opening_pct <= 100.0):
+            raise ValueError("expected 0.0 <= closed_opening_pct < open_opening_pct <= 100.0")
+        if contact_stall_s <= 0.0:
+            raise ValueError("contact_stall_s must be positive")
+        if grasp_settle_s <= contact_stall_s:
+            raise ValueError("grasp_settle_s must be greater than contact_stall_s")
+
         configured_hands = tuple(hands)
         if not configured_hands:
             raise ValueError("at least one hand must be configured")
@@ -83,6 +119,10 @@ class Reachy2Backend(RobotBackend):
         self._open_opening_pct = open_opening_pct
         self._gripper_step_pct = gripper_step_pct
         self._min_gripper_steps = max(1, min_gripper_steps)
+        self._contact_stall_steps = max(2, round(contact_stall_s / control_dt))
+        self._grasp_settle_steps = max(
+            self._contact_stall_steps + 1, round(grasp_settle_s / control_dt)
+        )
         self._lock = threading.Lock()
         self._closed_hands: set[str] = set()
         self._planner = planner or Reachy2Planner(
@@ -159,11 +199,10 @@ class Reachy2Backend(RobotBackend):
         with self._lock:
             q0 = self._read_arm_radians(hand)
             start = dict(zip(expected_joints, q0, strict=True))
-
-        try:
-            trajectory = self._planner.plan(hand, start, target, self._control_dt)
-        except PlanError as error:
-            return MotionOutcome(error.failure_code, error.detail)
+            try:
+                trajectory = self._planner.plan(hand, start, target, self._control_dt)
+            except PlanError as error:
+                return MotionOutcome(error.failure_code, error.detail)
 
         if tuple(trajectory.joints) != expected_joints:
             return MotionOutcome(
@@ -192,7 +231,7 @@ class Reachy2Backend(RobotBackend):
 
     def open(self, hand: str, stop: Event) -> MotionOutcome:
         with self._lock:
-            start_opening = self._gripper_opening(hand)
+            start_opening = _clamp_opening(self._gripper_opening(hand))
 
         steps = max(
             self._min_gripper_steps,
@@ -202,7 +241,7 @@ class Reachy2Backend(RobotBackend):
 
         def track(step: int) -> bool:
             fraction = min(1.0, (step + 1) / steps)
-            target_pct = min(100.0, start_opening + (100.0 - start_opening) * fraction)
+            target_pct = _clamp_opening(start_opening + (100.0 - start_opening) * fraction)
             gripper.set_opening(target_pct)
             return step >= steps - 1 and self._gripper_opening(hand) >= self._open_opening_pct
 
@@ -219,7 +258,7 @@ class Reachy2Backend(RobotBackend):
 
     def close(self, hand: str, stop: Event) -> MotionOutcome:
         with self._lock:
-            start_opening = self._gripper_opening(hand)
+            start_opening = _clamp_opening(self._gripper_opening(hand))
 
         steps = max(
             self._min_gripper_steps,
@@ -227,19 +266,33 @@ class Reachy2Backend(RobotBackend):
         )
         gripper = self._arms[hand].gripper
         touched = False
+        stalled_steps = 0
+        prev_actual_pct: float | None = None
 
         def track(step: int) -> bool:
-            nonlocal touched
+            nonlocal touched, stalled_steps, prev_actual_pct
             fraction = min(1.0, (step + 1) / steps)
-            target_pct = max(0.0, start_opening * (1.0 - fraction))
+            target_pct = _clamp_opening(start_opening * (1.0 - fraction))
             gripper.set_opening(target_pct)
             actual_pct = self._gripper_opening(hand)
+            # A stall is the opening not shrinking while still short of the target.
             if (
-                actual_pct - target_pct > 1.0
+                prev_actual_pct is not None
+                and abs(actual_pct - prev_actual_pct) < 0.5
+                and actual_pct - target_pct > 1.0
                 and self._closed_opening_pct < actual_pct < self._open_opening_pct
             ):
+                stalled_steps += 1
+            else:
+                stalled_steps = 0
+            prev_actual_pct = actual_pct
+            # Only a sustained stall counts as contact, so a single stale reading
+            # or a brief lag that then catches up is not reported as a slip.
+            if stalled_steps >= self._contact_stall_steps:
                 touched = True
-            return step >= steps - 1 and (actual_pct <= self._closed_opening_pct or touched)
+            return step >= steps - 1 and (
+                actual_pct <= self._closed_opening_pct or stalled_steps >= self._grasp_settle_steps
+            )
 
         settled = self._run(stop, track, extra_steps=steps)
         if stop.is_set():
@@ -265,7 +318,7 @@ class Reachy2Backend(RobotBackend):
                 if hasattr(arm.gripper, "cancel_all_goto"):
                     arm.gripper.cancel_all_goto()
                 self._write_arm_radians(hand, self._read_arm_radians(hand))
-                arm.gripper.set_opening(self._gripper_opening(hand))
+                arm.gripper.set_opening(_clamp_opening(self._gripper_opening(hand)))
 
     def shutdown(self) -> None:
         with self._lock:
@@ -277,6 +330,7 @@ class Reachy2Backend(RobotBackend):
                 self._reachy.disconnect()
 
     def _run(self, stop: Event, step_fn: Callable[[int], bool], extra_steps: int = 0) -> bool:
+        start = time.monotonic()
         budget = self._settle_steps + extra_steps
         for step in range(budget):
             # Poll stop outside self._lock so concurrent observe() never deadlocks.
@@ -286,8 +340,10 @@ class Reachy2Backend(RobotBackend):
                 done = step_fn(step)
             if done:
                 return True
-            if self._realtime and stop.wait(self._control_dt):
-                return False
+            if self._realtime:
+                remaining = start + (step + 1) * self._control_dt - time.monotonic()
+                if remaining > 0 and stop.wait(remaining):
+                    return False
         return False
 
 

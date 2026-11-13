@@ -96,6 +96,9 @@ class FakeGraspableObject:
     slip: bool = False
     capture_radius_m: float = 0.05
     held_by: str | None = None
+    # A slipping object holds the fingers for this many control steps, long
+    # enough to count as contact but too short to count as a grasp.
+    slip_after_steps: int = 7
 
 
 class FakeOrbitaJoint:
@@ -174,12 +177,15 @@ class FakeGripper:
             dist = float(np.linalg.norm(ee_pos - np.asarray(obj.position, dtype=np.float64)))
             if dist <= obj.capture_radius_m and target <= obj.opening_pct:
                 if obj.slip:
-                    # Simulate contacting and holding briefly until squeezed harder, then slipping.
+                    # Hold the fingers at obj.opening_pct for slip_after_steps
+                    # squeezes, then slip out to the commanded target.
                     obj.held_by = None
-                    if not getattr(obj, "_stalled", False):
+                    stalls = getattr(obj, "_stall_steps", 0)
+                    if self.opening <= obj.opening_pct + 0.5 and target < obj.opening_pct - 1.0:
+                        stalls += 1
+                        obj._stall_steps = stalls  # type: ignore[attr-defined]
+                    if stalls < obj.slip_after_steps:
                         self.opening = obj.opening_pct
-                        if self.opening - target > 1.0:
-                            obj._stalled = True  # type: ignore[attr-defined]
                     else:
                         self.opening = target
                     return

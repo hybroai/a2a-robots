@@ -1,5 +1,6 @@
 import asyncio
 import threading
+from collections.abc import Callable
 
 import numpy as np
 import pytest
@@ -13,7 +14,7 @@ from a2a_robots import (
     Workspace,
 )
 from a2a_robots.skills import parse_request
-from a2a_robots_pollen import FakeReachySDK, PollenBackend, Reachy2Backend
+from a2a_robots_pollen import FakeReachySDK, PollenBackend, Reachy2Backend, connect
 
 
 def _offset_pose(pose: Pose, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Pose:
@@ -305,3 +306,138 @@ async def test_controller_and_adapter_end_to_end():
     adapter = RobotAdapter(backend, limits, name="Reachy 2 Test")
     assert adapter.get_metadata().name == "Reachy 2 Test"
     await asyncio.wait_for(adapter.close(), 1)
+
+
+def test_disconnected_sdk_raises_connection_error(monkeypatch):
+    disconnected = FakeReachySDK()
+    disconnected.disconnect()
+    with pytest.raises(ConnectionError, match="not connected"):
+        Reachy2Backend(disconnected, realtime=False)
+
+    monkeypatch.setattr("reachy2_sdk.ReachySDK", lambda host, **kw: disconnected)
+    with pytest.raises(ConnectionError, match="failed to connect"):
+        connect("unreachable-host")
+
+
+def test_numeric_parameter_validation():
+    with pytest.raises(ValueError, match="control_dt"):
+        Reachy2Backend(FakeReachySDK(), control_dt=0.0, realtime=False)
+    with pytest.raises(ValueError, match="settle_time_s"):
+        Reachy2Backend(FakeReachySDK(), settle_time_s=-0.1, realtime=False)
+    with pytest.raises(ValueError, match="position_tolerance_m"):
+        Reachy2Backend(FakeReachySDK(), position_tolerance_m=0.0, realtime=False)
+    with pytest.raises(ValueError, match="orientation_tolerance_rad"):
+        Reachy2Backend(FakeReachySDK(), orientation_tolerance_rad=0.0, realtime=False)
+    with pytest.raises(ValueError, match="gripper_step_pct"):
+        Reachy2Backend(FakeReachySDK(), gripper_step_pct=0.0, realtime=False)
+    with pytest.raises(ValueError, match="closed_opening_pct"):
+        Reachy2Backend(
+            FakeReachySDK(), closed_opening_pct=80.0, open_opening_pct=80.0, realtime=False
+        )
+    with pytest.raises(ValueError, match="contact_stall_s"):
+        Reachy2Backend(FakeReachySDK(), contact_stall_s=0.0, realtime=False)
+    with pytest.raises(ValueError, match="grasp_settle_s"):
+        Reachy2Backend(FakeReachySDK(), contact_stall_s=0.2, grasp_settle_s=0.2, realtime=False)
+
+
+def _stalling_gripper(reachy: FakeReachySDK, freeze: Callable[[int], bool]) -> None:
+    """Make the right gripper ignore set_opening on the calls where ``freeze(n)`` is true,
+    so its opening reads the same as the previous step (a lag or stale state update)."""
+    assert reachy.r_arm is not None
+    gripper = reachy.r_arm.gripper
+    gripper.opening = 100.0
+    real_set_opening = gripper.set_opening
+    calls = {"n": 0}
+
+    def set_opening(percentage: float) -> None:
+        calls["n"] += 1
+        if not freeze(calls["n"]):
+            real_set_opening(percentage)
+
+    gripper.set_opening = set_opening  # type: ignore[method-assign]
+
+
+@pytest.mark.parametrize("frames", [1, 2, 3, 4])
+def test_brief_mid_range_stall_in_empty_air_is_not_a_slip(frames):
+    reachy = FakeReachySDK()
+    _stalling_gripper(reachy, lambda n: 4 <= n < 4 + frames)
+    backend = Reachy2Backend(reachy, realtime=False)
+
+    outcome = backend.close("right", threading.Event())
+
+    assert outcome.failure_code is None
+    assert reachy.r_arm.gripper.opening <= 2.0
+    assert backend.observe()["right"].held is False
+
+
+def test_stale_state_every_other_step_is_not_a_slip():
+    reachy = FakeReachySDK()
+    _stalling_gripper(reachy, lambda n: n % 2 == 0)
+    backend = Reachy2Backend(reachy, realtime=False)
+
+    outcome = backend.close("right", threading.Event())
+
+    assert outcome.failure_code is None
+    assert backend.observe()["right"].held is False
+
+
+def test_sustained_stall_that_then_closes_reads_as_slipped():
+    """Past contact_stall_s the backend cannot tell an object slipping out from a lag
+    catching up, because the gripper only reports its opening. Documented limit."""
+    reachy = FakeReachySDK()
+    _stalling_gripper(reachy, lambda n: 4 <= n < 12)
+    backend = Reachy2Backend(reachy, realtime=False)
+
+    assert backend.close("right", threading.Event()).failure_code is FailureCode.SLIPPED
+
+
+def test_lagging_empty_air_gripper_finishes_closing_without_false_hold():
+    """Physical grippers lag behind target_pct; closing in empty air must not look like a stall."""
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    gripper = reachy.r_arm.gripper
+    gripper.opening = 100.0
+    real_set_opening = gripper.set_opening
+
+    def lagging_set_opening(percentage: float) -> None:
+        # Advance at most 6% per control step toward the commanded target (less than 10% step).
+        step = max(percentage, gripper.opening - 6.0)
+        real_set_opening(step)
+
+    gripper.set_opening = lagging_set_opening  # type: ignore[method-assign]
+    backend = Reachy2Backend(reachy, realtime=False, settle_time_s=1.0)
+
+    outcome = backend.close("right", threading.Event())
+
+    assert outcome.failure_code is None
+    assert gripper.opening <= 2.0
+    state = backend.observe()["right"]
+    assert state.held is False
+    assert state.contact == {}
+
+
+def test_gripper_encoder_overshoot_is_clamped():
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    seen_targets: list[float] = []
+    real_set_opening = reachy.r_arm.gripper.set_opening
+
+    def recording_set_opening(percentage: float) -> None:
+        assert 0.0 <= percentage <= 100.0
+        seen_targets.append(percentage)
+        real_set_opening(percentage)
+
+    reachy.r_arm.gripper.set_opening = recording_set_opening  # type: ignore[method-assign]
+    backend = Reachy2Backend(reachy, realtime=False)
+
+    # Overshoot above 100% during hold() and close()
+    reachy.r_arm.gripper.opening = 100.5
+    backend.hold()
+    assert seen_targets[-1] == 100.0
+    assert backend.close("right", threading.Event()).failure_code is None
+
+    # Undershoot below 0% during hold() and open()
+    reachy.r_arm.gripper.opening = -0.5
+    backend.hold()
+    assert seen_targets[-1] == 0.0
+    assert backend.open("right", threading.Event()).failure_code is None
