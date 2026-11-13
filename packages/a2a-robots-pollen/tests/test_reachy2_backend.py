@@ -173,7 +173,7 @@ def test_stopped_close_does_not_report_held():
     assert state.contact == {}
 
 
-def test_stopped_open_keeps_held_while_grasping():
+def test_stopped_open_clears_held_once_opening_leaves_grasp_width():
     reachy = FakeReachySDK()
     backend = Reachy2Backend(reachy, realtime=False, min_gripper_steps=20)
     right_pos = backend.observe()["right"].pose.position
@@ -185,8 +185,10 @@ def test_stopped_open_keeps_held_while_grasping():
 
     assert outcome.failure_code is FailureCode.STOPPED
     state = backend.observe()["right"]
-    assert state.held is True
-    assert state.contact
+    # Opening has left the recorded grasp width, so held must clear even though
+    # _closed_hands is only discarded after a successful open.
+    assert state.held is False
+    assert state.contact == {}
 
 
 def test_open_and_close_timeout_when_gripper_stuck():
@@ -375,6 +377,10 @@ def test_numeric_parameter_validation():
         Reachy2Backend(FakeReachySDK(), contact_stall_s=0.0, realtime=False)
     with pytest.raises(ValueError, match="grasp_settle_s"):
         Reachy2Backend(FakeReachySDK(), contact_stall_s=0.2, grasp_settle_s=0.2, realtime=False)
+    with pytest.raises(ValueError, match="startup_grace_s"):
+        Reachy2Backend(FakeReachySDK(), startup_grace_s=-0.1, realtime=False)
+    with pytest.raises(ValueError, match="grasp_opening_tol_pct"):
+        Reachy2Backend(FakeReachySDK(), grasp_opening_tol_pct=-1.0, realtime=False)
 
 
 def _stalling_gripper(reachy: FakeReachySDK, freeze: Callable[[int], bool]) -> None:
@@ -422,6 +428,8 @@ def test_sustained_stall_that_then_closes_reads_as_slipped():
     """Past contact_stall_s the backend cannot tell an object slipping out from a lag
     catching up, because the gripper only reports its opening. Documented limit."""
     reachy = FakeReachySDK()
+    # Stall past contact_stall_s after the opening has moved into the mid-range
+    # band, but release before grasp_settle_s so close finishes in empty air.
     _stalling_gripper(reachy, lambda n: 4 <= n < 12)
     backend = Reachy2Backend(reachy, realtime=False)
 
@@ -454,7 +462,7 @@ def test_lagging_empty_air_gripper_finishes_closing_without_false_hold():
 
 
 def test_delayed_mid_range_start_is_not_a_false_grasp():
-    """A half-open start plus delayed first responses must not report held=True."""
+    """A half-open start plus delayed first responses within startup_grace_s must not grasp."""
     reachy = FakeReachySDK()
     assert reachy.r_arm is not None
     gripper = reachy.r_arm.gripper
@@ -464,8 +472,8 @@ def test_delayed_mid_range_start_is_not_a_false_grasp():
 
     def delayed_set_opening(percentage: float) -> None:
         calls["n"] += 1
-        # Ignore the first several commands so opening stays at 50% through grasp_settle_s.
-        if calls["n"] > 15:
+        # Stay put only through the start-up grace (~0.2 s / 10 steps at 20 ms).
+        if calls["n"] > 8:
             real_set_opening(percentage)
 
     gripper.set_opening = delayed_set_opening  # type: ignore[method-assign]
@@ -477,6 +485,45 @@ def test_delayed_mid_range_start_is_not_a_false_grasp():
     assert backend.observe()["right"].held is False
     assert backend.observe()["right"].contact == {}
     assert gripper.opening <= 2.0
+
+
+def test_close_succeeds_when_fingers_already_on_object():
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    backend = Reachy2Backend(reachy, realtime=False)
+    right_pos = backend.observe()["right"].pose.position
+    reachy.place_object("cube", right_pos, opening_pct=40.0)
+    reachy.r_arm.gripper.opening = 40.0
+    reachy.r_arm.gripper.goal_position = 40.0
+
+    outcome = backend.close("right", threading.Event())
+
+    assert outcome.failure_code is None
+    assert backend.observe()["right"].held is True
+    # Re-close while already holding must also succeed.
+    assert backend.close("right", threading.Event()).failure_code is None
+    assert backend.observe()["right"].held is True
+
+
+def test_hold_after_stopped_open_does_not_slam_shut():
+    reachy = FakeReachySDK()
+    assert reachy.r_arm is not None
+    backend = Reachy2Backend(reachy, realtime=False, min_gripper_steps=20)
+    right_pos = backend.observe()["right"].pose.position
+    reachy.place_object("cube", right_pos, opening_pct=40.0)
+    assert backend.close("right", threading.Event()).failure_code is None
+    assert backend.observe()["right"].held is True
+
+    outcome = backend.open("right", _StopAfter(3))
+    assert outcome.failure_code is FailureCode.STOPPED
+    measured = reachy.r_arm.gripper.opening
+    assert measured > 40.0
+    assert backend.observe()["right"].held is False
+
+    backend.hold()
+
+    assert reachy.r_arm.gripper.goal_position == pytest.approx(measured, abs=0.5)
+    assert reachy.r_arm.gripper.goal_position >= measured - 0.5
 
 
 def test_gripper_encoder_overshoot_is_clamped():

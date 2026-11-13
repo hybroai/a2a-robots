@@ -27,14 +27,16 @@ def _clamp_opening(pct: float) -> float:
     return min(100.0, max(0.0, float(pct)))
 
 
+_REACHY_PORT_KWARGS = frozenset({"sdk_port", "audio_port", "video_port"})
+
+
 def connect(host: str = "localhost", **kwargs: Any) -> Any:
     """Connect to a live or simulated Reachy 2 gRPC server.
 
     Extra kwargs such as ``sdk_port``, ``audio_port``, and ``video_port`` are
     forwarded to ``ReachySDK.__init__``. In ``reachy2-sdk`` 1.0.15,
-    ``ReachySDK.__new__`` only accepts ``host`` and ``fake_only``, so a direct
-    ``ReachySDK(host, sdk_port=...)`` call raises ``TypeError``; this helper
-    retries via ``__new__``/``__init__`` so those ports still work.
+    ``ReachySDK.__new__`` only accepts ``host`` and ``fake_only``, so those
+    port kwargs are applied via an explicit ``__new__``/``__init__`` path.
     """
     try:
         from reachy2_sdk import ReachySDK
@@ -44,13 +46,13 @@ def connect(host: str = "localhost", **kwargs: Any) -> Any:
             "install it with `pip install reachy2-sdk`"
         ) from exc
 
-    try:
-        reachy = ReachySDK(host=host, **kwargs)
-    except TypeError:
+    if _REACHY_PORT_KWARGS.intersection(kwargs):
         # In reachy2-sdk 1.0.15, __init__ accepts sdk_port/audio_port/video_port,
         # while __new__(cls, host, fake_only=False) rejects those kwargs.
         reachy = ReachySDK.__new__(ReachySDK, host, fake_only=bool(kwargs.get("fake_only", False)))
         ReachySDK.__init__(reachy, host=host, **kwargs)
+    else:
+        reachy = ReachySDK(host=host, **kwargs)
     if hasattr(reachy, "is_connected") and not reachy.is_connected():
         raise ConnectionError(f"failed to connect to Reachy 2 gRPC server at {host!r}")
     return reachy
@@ -78,16 +80,24 @@ class Reachy2Backend(RobotBackend):
         min_gripper_steps: int = 5,
         contact_stall_s: float = 0.1,
         grasp_settle_s: float = 0.2,
+        startup_grace_s: float = 0.2,
+        grasp_opening_tol_pct: float = 5.0,
         turn_on: bool = True,
         planner: Planner | None = None,
     ) -> None:
         """``contact_stall_s`` is how long the gripper must stop closing short of its
         target before ``close`` counts it as touching something; shorter stalls (a
         late state update, brief friction) are ignored. ``grasp_settle_s`` is how
-        long it must stay stalled to count as a grasp. A stall that passes the first
-        threshold but then closes past the object before the second is ``slipped``.
-        The gripper only reports its opening, so a lag lasting between the two
-        durations that then catches up in empty air also reads as ``slipped``."""
+        long it must stay stalled to count as a grasp. ``startup_grace_s`` ignores
+        stalls at the start of ``close`` while the opening is still at its start
+        value (mid-range start plus brief latency). After the grace, or once the
+        opening has moved, stalls count — including a re-close that is already on
+        an object. A stall that passes the first threshold but then closes past
+        the object before the second is ``slipped``. The gripper only reports its
+        opening, so a lag lasting between the two durations that then catches up
+        in empty air also reads as ``slipped``. ``grasp_opening_tol_pct`` is how
+        far the measured opening may drift from the opening recorded at grasp
+        settle before ``held`` clears and ``hold`` stops re-commanding a squeeze."""
         if hasattr(reachy, "is_connected") and not reachy.is_connected():
             raise ConnectionError("Reachy SDK instance is not connected")
         if control_dt <= 0.0:
@@ -106,6 +116,10 @@ class Reachy2Backend(RobotBackend):
             raise ValueError("contact_stall_s must be positive")
         if grasp_settle_s <= contact_stall_s:
             raise ValueError("grasp_settle_s must be greater than contact_stall_s")
+        if startup_grace_s < 0.0:
+            raise ValueError("startup_grace_s must be non-negative")
+        if grasp_opening_tol_pct < 0.0:
+            raise ValueError("grasp_opening_tol_pct must be non-negative")
 
         configured_hands = tuple(hands)
         if not configured_hands:
@@ -143,8 +157,11 @@ class Reachy2Backend(RobotBackend):
         self._grasp_settle_steps = max(
             self._contact_stall_steps + 1, round(grasp_settle_s / control_dt)
         )
+        self._startup_grace_steps = max(0, round(startup_grace_s / control_dt))
+        self._grasp_opening_tol_pct = grasp_opening_tol_pct
         self._lock = threading.Lock()
         self._closed_hands: set[str] = set()
+        self._grasp_opening: dict[str, float] = {}
         self._planner = planner or Reachy2Planner(
             arms,
             frame=frame,
@@ -196,13 +213,19 @@ class Reachy2Backend(RobotBackend):
             opening = gripper.get_current_opening()
         return float(opening)
 
-    def _grasp_state(self, hand: str) -> tuple[bool, dict[str, float]]:
-        opening = self._gripper_opening(hand)
-        held = (
+    def _still_grasping(self, hand: str, opening: float) -> bool:
+        """True while a settled close still has the fingers near the grasp opening."""
+        grasp_at = self._grasp_opening.get(hand)
+        return (
             hand in self._closed_hands
+            and grasp_at is not None
+            and abs(opening - grasp_at) <= self._grasp_opening_tol_pct
             and self._closed_opening_pct < opening < self._open_opening_pct
         )
-        if not held:
+
+    def _grasp_state(self, hand: str) -> tuple[bool, dict[str, float]]:
+        opening = self._gripper_opening(hand)
+        if not self._still_grasping(hand, opening):
             return False, {}
         # ParallelGripper does not report measured contact force, so expose an
         # opening-derived proxy estimate rather than a physical sensor reading.
@@ -277,6 +300,7 @@ class Reachy2Backend(RobotBackend):
             # Clear grasp state only after a successful open, so a stopped or
             # timed-out open does not claim the hand released an object.
             self._closed_hands.discard(hand)
+            self._grasp_opening.pop(hand, None)
         return MotionOutcome()
 
     def close(self, hand: str, stop: Event) -> MotionOutcome:
@@ -301,10 +325,12 @@ class Reachy2Backend(RobotBackend):
             actual_pct = self._gripper_opening(hand)
             if abs(actual_pct - start_opening) >= 0.5:
                 moved_from_start = True
-            # Ignore stalls until the opening has left start_opening: a mid-range
-            # start plus command/state latency would otherwise look like a grasp.
+            # During start-up grace, ignore stalls only while still at
+            # start_opening (mid-range start + brief latency). Once the opening
+            # has moved, or the grace has elapsed, stalls count — including a
+            # re-close that is already on an object and never leaves start.
             if (
-                moved_from_start
+                (step >= self._startup_grace_steps or moved_from_start)
                 and prev_actual_pct is not None
                 and abs(actual_pct - prev_actual_pct) < 0.5
                 and actual_pct - target_pct > 1.0
@@ -331,7 +357,9 @@ class Reachy2Backend(RobotBackend):
         with self._lock:
             # Mark the hand closed only after settle, so a stopped mid-close
             # never reports held=True from a partial opening.
+            opening = self._gripper_opening(hand)
             self._closed_hands.add(hand)
+            self._grasp_opening[hand] = opening
             held, _ = self._grasp_state(hand)
         if touched and not held:
             return MotionOutcome(FailureCode.SLIPPED, "object slipped during the grasp")
@@ -341,7 +369,7 @@ class Reachy2Backend(RobotBackend):
         with self._lock:
             # Attempt every hand even if one raises: stop/cancel must freeze both
             # arms. Re-raise the first error after the loop.
-            errors: list[BaseException] = []
+            errors: list[Exception] = []
             for hand in self._hands:
                 try:
                     arm = self._arms[hand]
@@ -350,13 +378,15 @@ class Reachy2Backend(RobotBackend):
                     if hasattr(arm.gripper, "cancel_all_goto"):
                         arm.gripper.cancel_all_goto()
                     self._write_arm_radians(hand, self._read_arm_radians(hand))
-                    # Keep the commanded squeeze while grasping. cancel_all_goto
-                    # and re-writing the measured opening (e.g. 40% on an object)
-                    # would open the goal from 0% and can drop the object on stop.
-                    if hand in self._closed_hands:
+                    measured = _clamp_opening(self._gripper_opening(hand))
+                    # Re-command a closed squeeze only while still near the grasp
+                    # opening. After a stopped/timed-out open the fingers may be
+                    # far from that width; holding the measured opening avoids
+                    # slamming the gripper shut.
+                    if self._still_grasping(hand, measured):
                         arm.gripper.set_opening(0.0)
                     else:
-                        arm.gripper.set_opening(_clamp_opening(self._gripper_opening(hand)))
+                        arm.gripper.set_opening(measured)
                 except Exception as error:
                     errors.append(error)
             if errors:
