@@ -7,6 +7,7 @@ Built on [a2a-adapter](https://github.com/hybroai/a2a-adapter). Early developmen
 | Package | What it is |
 | --- | --- |
 | `a2a-robots` (this directory) | The core: skills, safety limits, the controller, the A2A adapter, and `FakeBackend`. |
+| [`a2a-robots-lerobot`](packages/a2a-robots-lerobot) | Hugging Face LeRobot arms (`SO-100`/`SO-101`, `Bi-SO`, `Koch`) via `Robot` and `RobotKinematics`. |
 | [`a2a-robots-pollen`](packages/a2a-robots-pollen) | Pollen Robotics Reachy 2 arms and grippers over `reachy2-sdk`. |
 | [`a2a-robots-sharpa`](packages/a2a-robots-sharpa) | Sharpa Wave hands, simulated in MuJoCo. |
 | [`a2a-robots-ros2`](packages/a2a-robots-ros2) | An allowlisted ROS 2 bridge for bring-up and debugging. Not the typed skill contract. |
@@ -131,6 +132,7 @@ Each package is an independent `uv` project with its own `uv.lock` and environme
 uv sync --extra dev
 uv run ruff format --check . && uv run ruff check .
 uv run pytest
+uv run --directory packages/a2a-robots-lerobot --extra dev pytest
 uv run --directory packages/a2a-robots-pollen --extra dev pytest
 uv run --directory packages/a2a-robots-ros2 --extra dev pytest
 uv run --directory packages/a2a-robots-sharpa --extra dev pytest
