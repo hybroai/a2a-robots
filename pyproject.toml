@@ -29,8 +29,8 @@ Repository = "https://github.com/hybroai/a2a-robots"
 [tool.hatch.build.targets.wheel]
 packages = ["src/a2a_robots"]
 
-[tool.uv.workspace]
-members = ["packages/*"]
+[tool.hatch.build.targets.sdist]
+exclude = ["packages"]
 
 [tool.ruff]
 line-length = 100

@@ -21,6 +21,9 @@ classifiers = [
 # rclpy comes from the ROS 2 install, not PyPI, so it is not listed here.
 dependencies = ["a2a-adapter>=0.4.1,<0.5"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
 [project.urls]
 Repository = "https://github.com/hybroai/a2a-robots"
 

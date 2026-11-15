@@ -118,8 +118,7 @@ Use a new `messageId` for each request. Other requests: `{"skill": "pose"}`, `{"
 The bridge tests use a fake `RosGateway`, so they need no ROS install:
 
 ```bash
-uv sync --all-packages --extra dev
-uv run pytest packages/a2a-robots-ros2
+uv run --directory packages/a2a-robots-ros2 --extra dev pytest
 ```
 
 The `RclpyGateway` tests run against a live graph and are skipped without rclpy. The turtlesim example test starts a headless `turtlesim_node` (`QT_QPA_PLATFORM=offscreen`) and drives it over JSON-RPC. CI runs both in the `ros:jazzy-ros-base` image with `ros-jazzy-example-interfaces` and `ros-jazzy-turtlesim` installed:
@@ -128,6 +127,6 @@ The `RclpyGateway` tests run against a live graph and are skipped without rclpy.
 source /opt/ros/jazzy/setup.bash
 export UV_PROJECT_ENVIRONMENT=/opt/a2a-venv
 uv venv --system-site-packages --python /usr/bin/python3 "$UV_PROJECT_ENVIRONMENT"
-uv sync --frozen --all-packages --extra dev
-A2A_ROBOTS_REQUIRE_ROS=1 uv run pytest packages/a2a-robots-ros2
+uv sync --frozen --project packages/a2a-robots-ros2 --extra dev
+A2A_ROBOTS_REQUIRE_ROS=1 uv run --no-sync --project packages/a2a-robots-ros2 pytest packages/a2a-robots-ros2
 ```
