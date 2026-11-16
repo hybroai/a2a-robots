@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
@@ -147,11 +148,13 @@ class PlacoKinematics:
                 "`uv sync --directory packages/a2a-robots-lerobot "
                 "--python 3.12 --extra kinematics`)"
             ) from exc
+        self._lock = threading.Lock()
         self._max_iters = max_iters
 
     def forward_kinematics(self, q_rad: Sequence[float]) -> np.ndarray:
         q_deg = np.rad2deg(np.asarray(q_rad, dtype=np.float64))
-        return np.asarray(self._kinematics.forward_kinematics(q_deg), dtype=np.float64)
+        with self._lock:
+            return np.asarray(self._kinematics.forward_kinematics(q_deg), dtype=np.float64)
 
     def inverse_kinematics(
         self,
@@ -162,13 +165,15 @@ class PlacoKinematics:
         orientation_weight: float = 0.01,
     ) -> list[float]:
         q0_deg = np.rad2deg(np.asarray(q0_rad, dtype=np.float64))
-        sol_deg = self._kinematics.inverse_kinematics(
-            q0_deg,
-            np.asarray(target_matrix, dtype=np.float64),
-            position_weight=position_weight,
-            orientation_weight=orientation_weight,
-            max_iters=self._max_iters,
-        )
+        target = np.asarray(target_matrix, dtype=np.float64)
+        with self._lock:
+            sol_deg = self._kinematics.inverse_kinematics(
+                q0_deg,
+                target,
+                position_weight=position_weight,
+                orientation_weight=orientation_weight,
+                max_iters=self._max_iters,
+            )
         return [float(v) for v in np.deg2rad(np.asarray(sol_deg, dtype=np.float64))]
 
 

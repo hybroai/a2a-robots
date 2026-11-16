@@ -282,21 +282,28 @@ class LeRobotArmBackend(RobotBackend):
         self._target_action.update(updates)
         self._robot.send_action(dict(self._target_action))
 
-    def _sync_action_from_obs_locked(self, obs: Mapping[str, Any]) -> None:
-        for hand, spec in self._specs.items():
+    def _sync_hand_action_from_obs_locked(
+        self, hand: str, obs: Mapping[str, Any], *, include_arm: bool = True
+    ) -> None:
+        spec = self._specs[hand]
+        if include_arm:
             for obs_key, act_key in zip(
                 spec.resolved_observation_keys(), spec.resolved_action_keys(), strict=True
             ):
                 if act_key in self._target_action:
                     self._target_action[act_key] = float(obs[obs_key])
-            grip_act = spec.gripper_action_key
-            grip_obs = spec.resolved_gripper_observation_key()
-            if grip_act is not None and grip_obs is not None and grip_act in self._target_action:
-                opening_pct = _to_opening_pct(spec, float(obs[grip_obs]))
-                if self._still_grasping(hand, opening_pct):
-                    self._target_action[grip_act] = spec.gripper_closed_value
-                else:
-                    self._target_action[grip_act] = _from_opening_pct(spec, opening_pct)
+        grip_act = spec.gripper_action_key
+        grip_obs = spec.resolved_gripper_observation_key()
+        if grip_act is not None and grip_obs is not None and grip_act in self._target_action:
+            opening_pct = _to_opening_pct(spec, float(obs[grip_obs]))
+            if self._still_grasping(hand, opening_pct):
+                self._target_action[grip_act] = spec.gripper_closed_value
+            else:
+                self._target_action[grip_act] = _from_opening_pct(spec, opening_pct)
+
+    def _sync_action_from_obs_locked(self, obs: Mapping[str, Any]) -> None:
+        for hand in self._specs:
+            self._sync_hand_action_from_obs_locked(hand, obs, include_arm=True)
 
     def observe(self) -> dict[str, HandState]:
         with self._lock:
@@ -312,17 +319,19 @@ class LeRobotArmBackend(RobotBackend):
         spec = self._specs[hand]
         with self._lock:
             obs = self._robot.get_observation()
-            self._sync_action_from_obs_locked(obs)
+            self._sync_hand_action_from_obs_locked(hand, obs, include_arm=True)
             q0 = self._obs_to_rad(hand, obs)
             start = dict(zip(spec.arm_joints, q0, strict=True))
-            try:
-                trajectory = self._planner.plan(hand, start, target, self._control_dt)
-            except PlanError as error:
-                return MotionOutcome(error.failure_code, error.detail)
+
+        try:
+            trajectory = self._planner.plan(hand, start, target, self._control_dt)
+        except PlanError as error:
+            return MotionOutcome(error.failure_code, error.detail)
 
         if tuple(trajectory.joints) != spec.arm_joints:
-            raise ValueError(
-                f"planner returned joints {trajectory.joints!r}, expected {spec.arm_joints!r}"
+            return MotionOutcome(
+                FailureCode.UNREACHABLE,
+                f"planner returned joints {trajectory.joints!r}, expected {spec.arm_joints!r}",
             )
 
         points = trajectory.points
@@ -362,7 +371,7 @@ class LeRobotArmBackend(RobotBackend):
 
         with self._lock:
             obs = self._robot.get_observation()
-            self._sync_action_from_obs_locked(obs)
+            self._sync_hand_action_from_obs_locked(hand, obs, include_arm=False)
             start_opening = _clamp(self._gripper_opening_pct(hand, obs), 0.0, 100.0)
 
         steps = max(self._min_gripper_steps, math.ceil(abs(100.0 - start_opening) / step_pct))
@@ -402,7 +411,7 @@ class LeRobotArmBackend(RobotBackend):
 
         with self._lock:
             obs = self._robot.get_observation()
-            self._sync_action_from_obs_locked(obs)
+            self._sync_hand_action_from_obs_locked(hand, obs, include_arm=False)
             start_opening = _clamp(self._gripper_opening_pct(hand, obs), 0.0, 100.0)
 
         steps = max(self._min_gripper_steps, math.ceil(abs(start_opening) / step_pct))

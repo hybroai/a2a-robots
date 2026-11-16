@@ -151,6 +151,43 @@ def test_bimanual_move_to_sends_full_action_dict_and_holds_other_arm():
     assert after["left"].pose.position == pytest.approx(before["left"].pose.position, abs=1e-6)
 
 
+def test_commanding_one_arm_preserves_targets_under_gravity_sag():
+    robot = FakeLeRobot(bimanual=True)
+    backend = LeRobotArmBackend(robot, robot.arms, solvers=robot.kinematics, realtime=False)
+    left_target = robot.goal_positions["left_shoulder_lift.pos"]
+
+    sag = {"left_shoulder_lift.pos": -1.5, "right_shoulder_lift.pos": 0.0}
+    real_get_obs = robot.get_observation
+
+    def sagging_obs():
+        obs = real_get_obs()
+        for key, offset in sag.items():
+            obs[key] = float(obs[key]) + offset
+        return obs
+
+    robot.get_observation = sagging_obs  # type: ignore[method-assign]
+    right_pose = backend.observe()["right"].pose
+    target = _offset_pose(right_pose, dx=0.01, dz=0.01)
+
+    assert backend.move_to("right", target, threading.Event()).failure_code is None
+    right_target = robot.goal_positions["right_shoulder_lift.pos"]
+    sag["right_shoulder_lift.pos"] = -1.5
+
+    assert backend.open("right", threading.Event()).failure_code is None
+    assert backend.close("right", threading.Event()).failure_code is None
+
+    assert all(
+        sent["left_shoulder_lift.pos"] == pytest.approx(left_target, abs=1e-6)
+        for sent in robot.sent_actions
+    )
+    assert robot.goal_positions["right_shoulder_lift.pos"] == pytest.approx(right_target, abs=1e-6)
+
+    backend.hold()
+    assert robot.goal_positions["left_shoulder_lift.pos"] == pytest.approx(
+        left_target - 1.5, abs=1e-6
+    )
+
+
 def test_unreachable_target_does_not_move_arm_and_recovers():
     robot = FakeLeRobot(bimanual=False)
     backend = LeRobotArmBackend(robot, robot.arms, solvers=robot.kinematics, realtime=False)

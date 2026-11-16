@@ -173,10 +173,51 @@ def test_backend_uses_custom_planner_and_validates_joint_names():
         planner=bad_planner,
     )
     target = backend.observe()["right"].pose
+    sent_before = len(robot.sent_actions)
 
-    with pytest.raises(ValueError, match="expected"):
-        backend.move_to("right", target, threading.Event())
+    outcome = backend.move_to("right", target, threading.Event())
+    assert outcome.failure_code is FailureCode.UNREACHABLE
+    assert "expected" in (outcome.detail or "")
     assert bad_planner.calls == 1
+    assert len(robot.sent_actions) == sent_before
+
+
+def test_observe_does_not_wait_on_slow_planner():
+    robot = FakeLeRobot(bimanual=False, dof=5)
+    planning_started = threading.Event()
+    allow_finish = threading.Event()
+
+    class BlockingPlanner(Planner):
+        def plan(self, hand, start, target, dt):
+            del hand, start, target, dt
+            planning_started.set()
+            assert allow_finish.wait(timeout=2.0)
+            raise PlanError(FailureCode.UNREACHABLE, "blocked")
+
+    backend = LeRobotArmBackend(
+        robot,
+        robot.arms,
+        solvers=robot.kinematics,
+        realtime=False,
+        planner=BlockingPlanner(),
+    )
+    target = backend.observe()["right"].pose
+    result: dict[str, object] = {}
+
+    def run_move() -> None:
+        result["outcome"] = backend.move_to("right", target, threading.Event())
+
+    worker = threading.Thread(target=run_move)
+    worker.start()
+    try:
+        assert planning_started.wait(timeout=1.0)
+        obs = backend.observe()
+        assert "right" in obs
+    finally:
+        allow_finish.set()
+        worker.join(timeout=2.0)
+
+    assert result["outcome"].failure_code is FailureCode.UNREACHABLE  # type: ignore[union-attr]
 
 
 def test_arm_spec_validation():
