@@ -20,21 +20,21 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --frozen --extra dev
-      - run: uv run --frozen --extra dev ruff format --check .
-      - run: uv run --frozen --extra dev ruff check .
-      - run: uv run --frozen --extra dev pytest
-      - run: uv run --directory packages/a2a-robots-pollen --frozen --extra dev pytest
-      - run: uv run --directory packages/a2a-robots-pollen --frozen --extra sdk --extra dev pytest tests/test_reachy2_sdk_grpc.py
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked --extra dev ruff format --check .
+      - run: uv run --locked --extra dev ruff check .
+      - run: uv run --locked --extra dev pytest
+      - run: uv run --directory packages/a2a-robots-pollen --locked --extra dev pytest
+      - run: uv run --directory packages/a2a-robots-pollen --locked --extra sdk --extra dev pytest tests/test_reachy2_sdk_grpc.py
         env:
           A2A_ROBOTS_REQUIRE_REACHY2_SDK: "1"
-      - run: uv run --directory packages/a2a-robots-ros2 --frozen --extra dev pytest
+      - run: uv run --directory packages/a2a-robots-ros2 --locked --extra dev pytest
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/sharpa-model
           key: sharpa-model-${{ hashFiles('packages/a2a-robots-sharpa/src/a2a_robots_sharpa/model.py') }}
-      - run: uv run --directory packages/a2a-robots-sharpa --frozen --extra dev python -m a2a_robots_sharpa ${{ runner.temp }}/sharpa-model
-      - run: uv run --directory packages/a2a-robots-sharpa --frozen --extra dev pytest
+      - run: uv run --directory packages/a2a-robots-sharpa --locked --extra dev python -m a2a_robots_sharpa ${{ runner.temp }}/sharpa-model
+      - run: uv run --directory packages/a2a-robots-sharpa --locked --extra dev pytest
         env:
           SHARPA_MODEL_DIR: ${{ runner.temp }}/sharpa-model
 
@@ -55,5 +55,5 @@ jobs:
       - run: apt-get update && apt-get install -y --no-install-recommends ros-jazzy-example-interfaces ros-jazzy-turtlesim
       - uses: astral-sh/setup-uv@v6
       - run: uv venv --system-site-packages --python /usr/bin/python3 "$UV_PROJECT_ENVIRONMENT"
-      - run: uv sync --frozen --project packages/a2a-robots-ros2 --extra dev
+      - run: uv sync --locked --project packages/a2a-robots-ros2 --extra dev
       - run: source /opt/ros/jazzy/setup.bash && uv run --no-sync --project packages/a2a-robots-ros2 pytest packages/a2a-robots-ros2

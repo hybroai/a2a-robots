@@ -127,6 +127,6 @@ The `RclpyGateway` tests run against a live graph and are skipped without rclpy.
 source /opt/ros/jazzy/setup.bash
 export UV_PROJECT_ENVIRONMENT=/opt/a2a-venv
 uv venv --system-site-packages --python /usr/bin/python3 "$UV_PROJECT_ENVIRONMENT"
-uv sync --frozen --project packages/a2a-robots-ros2 --extra dev
+uv sync --locked --project packages/a2a-robots-ros2 --extra dev
 A2A_ROBOTS_REQUIRE_ROS=1 uv run --no-sync --project packages/a2a-robots-ros2 pytest packages/a2a-robots-ros2
 ```
