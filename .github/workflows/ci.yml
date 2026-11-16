@@ -24,6 +24,7 @@ jobs:
       - run: uv run --locked --extra dev ruff format --check .
       - run: uv run --locked --extra dev ruff check .
       - run: uv run --locked --extra dev pytest
+      - run: uv run --directory packages/a2a-robots-lerobot --locked --extra dev pytest
       - run: uv run --directory packages/a2a-robots-pollen --locked --extra dev pytest
       - run: uv run --directory packages/a2a-robots-pollen --locked --extra sdk --extra dev pytest tests/test_reachy2_sdk_grpc.py
         env:
