@@ -20,11 +20,14 @@ classifiers = [
 ]
 dependencies = ["a2a-robots", "mujoco>=3.3,<4", "numpy>=1.26"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
 [project.urls]
 Repository = "https://github.com/hybroai/a2a-robots"
 
 [tool.uv.sources]
-a2a-robots = { workspace = true }
+a2a-robots = { path = "../..", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/a2a_robots_sharpa"]

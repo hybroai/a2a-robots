@@ -13,23 +13,17 @@
 
 ## Usage
 
-Offline tests and `FakeReachySDK` work out of the box and do not need `reachy2-sdk`.
-
-Live / Docker-sim use needs a **separate** environment. `reachy2-sdk` 1.0.15 pins older `numpy`, `protobuf`, and `grpcio` than this workspace lockfile; installing it into the shared venv with `uv pip install` can downgrade packages used by `a2a-sdk` / MuJoCo, and the next `uv sync` removes it again. Use an isolated install (as the tests do), or a dedicated venv:
+`a2a-robots-pollen` is an independent `uv` project with its own `uv.lock` and an optional `sdk` extra for `reachy2-sdk`. Offline tests and `FakeReachySDK` work out of the box without installing `reachy2-sdk`:
 
 ```bash
-uv sync --all-packages --extra dev
-
 # Offline with the built-in test double (no reachy2-sdk):
-REACHY2_FAKE=1 uv run python packages/a2a-robots-pollen/examples/serve_reachy2.py
+REACHY2_FAKE=1 uv run --directory packages/a2a-robots-pollen python examples/serve_reachy2.py
 
-# Live / simulated Reachy 2 in an isolated env (does not rewrite uv.lock):
-uv run --isolated \
-  --with "reachy2-sdk>=1.0.15,<2" --with-editable . --with-editable packages/a2a-robots-pollen \
-  python packages/a2a-robots-pollen/examples/serve_reachy2.py
+# Live / simulated Reachy 2 (installs the `sdk` extra: reachy2-sdk):
+uv run --directory packages/a2a-robots-pollen --extra sdk python examples/serve_reachy2.py
 ```
 
-The offline fake path is what unit tests exercise by default. Integration coverage against the real `reachy2-sdk` classes (in-process gRPC over `FakeReachySDK`) runs in CI via `uv run --isolated`. A smoke test against the `pollenrobotics/reachy2` Docker simulator is available when `REACHY2_HOST` is set (see Tests).
+The offline fake path is what unit tests exercise by default. Integration coverage against the real `reachy2-sdk` classes (in-process gRPC over `FakeReachySDK`) runs with `--extra sdk`. A smoke test against the `pollenrobotics/reachy2` Docker simulator is available when `REACHY2_HOST` is set (see Tests).
 
 Or in Python:
 
@@ -47,16 +41,14 @@ serve_robot(adapter, port=9100)
 
 ```bash
 # Offline unit & adapter tests against FakeReachySDK
-uv run pytest packages/a2a-robots-pollen
+uv run --directory packages/a2a-robots-pollen --extra dev pytest
 
 # Integration tests against the real reachy2-sdk classes over an in-process gRPC server
-A2A_ROBOTS_REQUIRE_REACHY2_SDK=1 uv run --isolated \
-  --with "reachy2-sdk>=1.0.15,<2" --with pytest --with pytest-asyncio --with-editable packages/a2a-robots-pollen \
-  pytest packages/a2a-robots-pollen/tests/test_reachy2_sdk_grpc.py
+A2A_ROBOTS_REQUIRE_REACHY2_SDK=1 uv run --directory packages/a2a-robots-pollen \
+  --extra sdk --extra dev pytest tests/test_reachy2_sdk_grpc.py
 
 # Smoke test against a running Pollen Reachy 2 Docker simulator (pollenrobotics/reachy2)
-REACHY2_HOST=localhost A2A_ROBOTS_REQUIRE_REACHY2_SDK=1 uv run --isolated \
-  --with "reachy2-sdk>=1.0.15,<2" --with pytest --with pytest-asyncio --with-editable packages/a2a-robots-pollen \
-  pytest packages/a2a-robots-pollen/tests/test_reachy2_sdk_grpc.py -k docker_sim
+REACHY2_HOST=localhost A2A_ROBOTS_REQUIRE_REACHY2_SDK=1 uv run --directory packages/a2a-robots-pollen \
+  --extra sdk --extra dev pytest tests/test_reachy2_sdk_grpc.py -k docker_sim
 ```
 

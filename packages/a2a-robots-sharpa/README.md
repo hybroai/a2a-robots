@@ -16,8 +16,7 @@
 The meshes are about 24 MB, so they are not committed here. `fetch_model()` downloads the model at a pinned commit on first use, checks its digest, and caches it under `~/.cache/a2a-robots/`.
 
 ```bash
-uv sync --all-packages --extra dev
-uv run python packages/a2a-robots-sharpa/examples/serve_mujoco.py   # http://127.0.0.1:9100/
+uv run --directory packages/a2a-robots-sharpa python examples/serve_mujoco.py   # http://127.0.0.1:9100/
 ```
 
 To add objects, edit the spec before compiling, as the example does:
@@ -33,6 +32,6 @@ backend = SharpaMujocoBackend(load_model(spec))
 The unit tests use `tests/mini_dual_hand.xml`, a mesh-free model with the same joint and body names, so they need no download. `test_real_sharpa_model_moves_and_grasps` runs against the real model when `SHARPA_MODEL_DIR` is set:
 
 ```bash
-uv run python -m a2a_robots_sharpa ~/.cache/a2a-robots/sharpa-wave
-SHARPA_MODEL_DIR=~/.cache/a2a-robots/sharpa-wave uv run pytest packages/a2a-robots-sharpa
+uv run --directory packages/a2a-robots-sharpa python -m a2a_robots_sharpa ~/.cache/a2a-robots/sharpa-wave
+SHARPA_MODEL_DIR=~/.cache/a2a-robots/sharpa-wave uv run --directory packages/a2a-robots-sharpa --extra dev pytest
 ```

@@ -102,7 +102,7 @@ curl -s http://127.0.0.1:9100/ -H 'Content-Type: application/json' -d '{
 
 ## Adding a robot
 
-This repository is a monorepo. The shared package stays `a2a-robots`; each real robot is a sibling package named `a2a-robots-<name>` (for example `a2a-robots-sharpa`) that depends on it. `FakeBackend` stays in the core package only as a dependency-free test double.
+This repository keeps each robot backend as an independent Python package under `packages/a2a-robots-<name>` (for example `a2a-robots-sharpa`) with its own dependencies, lockfile, and virtual environment. Only `a2a-robots` (or `a2a-adapter` for the ROS 2 bridge) is shared. `FakeBackend` stays in the core package only as a dependency-free test double.
 
 ### Planning
 
@@ -125,13 +125,15 @@ They check that `observe` reports every hand and stays safe during motion, that 
 
 ## Development
 
+Each package is an independent `uv` project with its own `uv.lock` and environment:
+
 ```bash
-uv sync --all-packages --extra dev
+uv sync --extra dev
 uv run ruff format --check . && uv run ruff check .
 uv run pytest
-uv run pytest packages/a2a-robots-pollen
-uv run pytest packages/a2a-robots-ros2
-uv run pytest packages/a2a-robots-sharpa
+uv run --directory packages/a2a-robots-pollen --extra dev pytest
+uv run --directory packages/a2a-robots-ros2 --extra dev pytest
+uv run --directory packages/a2a-robots-sharpa --extra dev pytest
 ```
 
 ## License
