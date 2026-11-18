@@ -1,6 +1,6 @@
 """Pollen Robotics Reachy 2 backend for a2a-robots."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from a2a_robots_pollen.backend import PollenBackend, Reachy2Backend, connect
 from a2a_robots_pollen.fake import FakeReachySDK

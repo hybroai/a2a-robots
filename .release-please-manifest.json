@@ -1,7 +1,7 @@
 {
   ".": "0.1.1",
   "packages/a2a-robots-lerobot": "0.1.1",
-  "packages/a2a-robots-pollen": "0.1.0",
+  "packages/a2a-robots-pollen": "0.1.1",
   "packages/a2a-robots-ros2": "0.1.0",
   "packages/a2a-robots-sharpa": "0.1.0"
 }
