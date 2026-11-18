@@ -1,6 +1,6 @@
 # a2a-robots-sharpa
 
-[Sharpa Wave](https://github.com/sharpa-robotics) hands for [a2a-robots](../../README.md). This release has the MuJoCo backend; the Sharpa SDK backend for the real hands will be added here once the SDK is available.
+[Sharpa Wave](https://github.com/sharpa-robotics) hands for [a2a-robots](https://github.com/hybroai/a2a-robots). This release has the MuJoCo backend; the Sharpa SDK backend for the real hands will be added here once the SDK is available.
 
 Install from PyPI: `pip install a2a-robots-sharpa`.
 

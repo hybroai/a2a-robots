@@ -1,6 +1,6 @@
 # a2a-robots-ros2
 
-An allowlisted ROS 2 bridge for [a2a-robots](../../README.md): it exposes the ROS 2 actions, services and topics you list as A2A skills, for robot bring-up and debugging.
+An allowlisted ROS 2 bridge for [a2a-robots](https://github.com/hybroai/a2a-robots): it exposes the ROS 2 actions, services and topics you list as A2A skills, for robot bring-up and debugging.
 
 Install from PyPI: `pip install a2a-robots-ros2`.
 
@@ -87,7 +87,7 @@ uv pip install ./packages/a2a-robots-ros2  # from a checkout of this repository
 
 ## Try it with turtlesim
 
-[`examples/turtlesim_bridge.py`](examples/turtlesim_bridge.py) allowlists turtlesim's `rotate_absolute` action, the `teleport_absolute` and `spawn` services and the pose topic. With ROS 2 Jazzy, `ros-jazzy-turtlesim` installed and the virtual environment from [ROS 2](#ros-2), run each in its own shell with ROS 2 sourced:
+[`examples/turtlesim_bridge.py`](https://github.com/hybroai/a2a-robots/blob/main/packages/a2a-robots-ros2/examples/turtlesim_bridge.py) allowlists turtlesim's `rotate_absolute` action, the `teleport_absolute` and `spawn` services and the pose topic. With ROS 2 Jazzy, `ros-jazzy-turtlesim` installed and the virtual environment from [ROS 2](#ros-2), run each in its own shell with ROS 2 sourced:
 
 ```bash
 ros2 run turtlesim turtlesim_node

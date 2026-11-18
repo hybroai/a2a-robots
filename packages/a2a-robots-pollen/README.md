@@ -1,6 +1,6 @@
 # a2a-robots-pollen
 
-[Pollen Robotics Reachy 2](https://github.com/pollen-robotics/reachy2-sdk) backend for [a2a-robots](../../README.md).
+[Pollen Robotics Reachy 2](https://github.com/pollen-robotics/reachy2-sdk) backend for [a2a-robots](https://github.com/hybroai/a2a-robots).
 
 Install from PyPI: `pip install a2a-robots-pollen`.
 

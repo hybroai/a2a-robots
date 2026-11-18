@@ -1,6 +1,6 @@
 # a2a-robots-lerobot
 
-[Hugging Face LeRobot](https://github.com/huggingface/lerobot) backend for [a2a-robots](../../README.md).
+[Hugging Face LeRobot](https://github.com/huggingface/lerobot) backend for [a2a-robots](https://github.com/hybroai/a2a-robots).
 
 Install from PyPI: `pip install a2a-robots-lerobot`.
 
