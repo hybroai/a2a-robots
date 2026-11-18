@@ -44,7 +44,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "a2a-robots-lerobot"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-robots" },
