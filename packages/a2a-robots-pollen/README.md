@@ -2,6 +2,8 @@
 
 [Pollen Robotics Reachy 2](https://github.com/pollen-robotics/reachy2-sdk) backend for [a2a-robots](../../README.md).
 
+Install from PyPI: `pip install a2a-robots-pollen`.
+
 ## Reachy 2 backend
 
 `Reachy2Backend` (aliased as `PollenBackend`) exposes Reachy 2's dual 7-DoF arms (`l_arm`, `r_arm`) and parallel grippers through `a2a_robots.RobotBackend` and `a2a_robots.RobotAdapter`.
