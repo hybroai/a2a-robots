@@ -2,6 +2,8 @@
 
 [Sharpa Wave](https://github.com/sharpa-robotics) hands for [a2a-robots](../../README.md). This release has the MuJoCo backend; the Sharpa SDK backend for the real hands will be added here once the SDK is available.
 
+Install from PyPI: `pip install a2a-robots-sharpa`.
+
 ## MuJoCo backend
 
 `SharpaMujocoBackend` runs `dual_sharpa_wave.xml` from [sharpa-robotics/sharpa-urdf-usd-xml](https://github.com/sharpa-robotics/sharpa-urdf-usd-xml) (Apache-2.0): two hands, each on a 6-DoF floating base, with no arm or body model.
