@@ -138,6 +138,11 @@ uv run --directory packages/a2a-robots-ros2 --extra dev pytest
 uv run --directory packages/a2a-robots-sharpa --extra dev pytest
 ```
 
+## Releases
+
+Package versions and PyPI publishes are automated with release-please. See
+[CONTRIBUTING.md](CONTRIBUTING.md#release-process).
+
 ## License
 
 Apache-2.0

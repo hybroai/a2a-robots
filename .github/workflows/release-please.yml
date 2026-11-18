@@ -1,0 +1,161 @@
+name: Release Please
+
+# On every push to main, release-please opens or updates per-package release PRs
+# that bump the version (pyproject.toml, __init__.py) and CHANGELOG.md from the
+# Conventional Commits merged since the last release. The sync-lock job then
+# commits matching uv.lock files to each open release PR: release-please's TOML
+# updater has not updated uv.lock in practice. Merging a PR creates the
+# {component}-v{version} tag and GitHub Release.
+#
+# release-please acts with GITHUB_TOKEN, and GitHub starts no workflow for a
+# release that token creates, so publish.yml would never see the release
+# event. It is dispatched on the new tag instead: workflow_dispatch is exempt
+# from that rule, and publish.yml stays the top-level workflow that PyPI
+# trusted publishing is registered for.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    if: github.repository == 'hybroai/a2a-robots'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      root_release_created: ${{ steps.release.outputs.release_created }}
+      root_tag_name: ${{ steps.release.outputs.tag_name }}
+      lerobot_release_created: ${{ steps.release.outputs['packages/a2a-robots-lerobot--release_created'] }}
+      lerobot_tag_name: ${{ steps.release.outputs['packages/a2a-robots-lerobot--tag_name'] }}
+      pollen_release_created: ${{ steps.release.outputs['packages/a2a-robots-pollen--release_created'] }}
+      pollen_tag_name: ${{ steps.release.outputs['packages/a2a-robots-pollen--tag_name'] }}
+      ros2_release_created: ${{ steps.release.outputs['packages/a2a-robots-ros2--release_created'] }}
+      ros2_tag_name: ${{ steps.release.outputs['packages/a2a-robots-ros2--tag_name'] }}
+      sharpa_release_created: ${{ steps.release.outputs['packages/a2a-robots-sharpa--release_created'] }}
+      sharpa_tag_name: ${{ steps.release.outputs['packages/a2a-robots-sharpa--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  sync-lock:
+    needs: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Find open release PRs
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t branches < <(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --label "autorelease: pending" --json headRefName \
+            --jq '.[].headRefName')
+          {
+            echo "branches<<EOF"
+            printf '%s\n' "${branches[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "count=${#branches[@]}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.find.outputs.count != '0'
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        if: steps.find.outputs.count != '0'
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.7.13"
+          python-version: "3.12"
+
+      - name: Commit bumped versions to uv.lock files
+        if: steps.find.outputs.count != '0'
+        env:
+          BRANCHES: ${{ steps.find.outputs.branches }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          lock_projects() {
+            uv lock
+            uv lock --directory packages/a2a-robots-lerobot
+            uv lock --directory packages/a2a-robots-pollen
+            uv lock --directory packages/a2a-robots-ros2
+            uv lock --directory packages/a2a-robots-sharpa
+          }
+
+          while IFS= read -r branch; do
+            [ -n "$branch" ] || continue
+            echo "::group::${branch}"
+            git fetch origin "$branch"
+            git checkout "$branch"
+            lock_projects
+            if git diff --quiet -- \
+              uv.lock \
+              packages/a2a-robots-lerobot/uv.lock \
+              packages/a2a-robots-pollen/uv.lock \
+              packages/a2a-robots-ros2/uv.lock \
+              packages/a2a-robots-sharpa/uv.lock
+            then
+              echo "uv.lock files already in sync"
+            else
+              git add \
+                uv.lock \
+                packages/a2a-robots-lerobot/uv.lock \
+                packages/a2a-robots-pollen/uv.lock \
+                packages/a2a-robots-ros2/uv.lock \
+                packages/a2a-robots-sharpa/uv.lock
+              git commit -m "chore: sync uv.lock with the release version"
+              git push origin "HEAD:${branch}"
+            fi
+            echo "::endgroup::"
+          done <<< "$BRANCHES"
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch publish.yml on each new release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT_CREATED: ${{ needs.release-please.outputs.root_release_created }}
+          ROOT_TAG: ${{ needs.release-please.outputs.root_tag_name }}
+          LEROBOT_CREATED: ${{ needs.release-please.outputs.lerobot_release_created }}
+          LEROBOT_TAG: ${{ needs.release-please.outputs.lerobot_tag_name }}
+          POLLEN_CREATED: ${{ needs.release-please.outputs.pollen_release_created }}
+          POLLEN_TAG: ${{ needs.release-please.outputs.pollen_tag_name }}
+          ROS2_CREATED: ${{ needs.release-please.outputs.ros2_release_created }}
+          ROS2_TAG: ${{ needs.release-please.outputs.ros2_tag_name }}
+          SHARPA_CREATED: ${{ needs.release-please.outputs.sharpa_release_created }}
+          SHARPA_TAG: ${{ needs.release-please.outputs.sharpa_tag_name }}
+        run: |
+          dispatch() {
+            local created="$1" tag="$2"
+            if [ "$created" = "true" ] && [ -n "$tag" ]; then
+              echo "Dispatching publish.yml on $tag"
+              gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$tag"
+            fi
+          }
+          dispatch "$ROOT_CREATED" "$ROOT_TAG"
+          dispatch "$LEROBOT_CREATED" "$LEROBOT_TAG"
+          dispatch "$POLLEN_CREATED" "$POLLEN_TAG"
+          dispatch "$ROS2_CREATED" "$ROS2_TAG"
+          dispatch "$SHARPA_CREATED" "$SHARPA_TAG"

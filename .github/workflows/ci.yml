@@ -1,9 +1,12 @@
 name: CI
 
+# Runs lint and the test suite on pull requests and on pushes to main.
+# publish.yml also calls it, so a package is only built after CI passes.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
