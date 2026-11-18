@@ -2,6 +2,8 @@
 
 [Hugging Face LeRobot](https://github.com/huggingface/lerobot) backend for [a2a-robots](../../README.md).
 
+Install from PyPI: `pip install a2a-robots-lerobot`.
+
 ## LeRobot backend
 
 `LeRobotArmBackend` adapts single-arm and bimanual manipulators managed by `lerobot.robots.Robot` (for example `SO100Follower`, `SO101Follower`, `BiSOFollower`, and `KochFollower`) to `a2a_robots.RobotBackend` and `a2a_robots.RobotAdapter`.
