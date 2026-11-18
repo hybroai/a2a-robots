@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/hybroai/a2a-robots/compare/a2a-robots-pollen-v0.1.1...a2a-robots-pollen-v0.1.2) (2026-11-18)
+
+
+### Documentation
+
+* use absolute GitHub URLs in PyPI READMEs ([273c372](https://github.com/hybroai/a2a-robots/commit/273c37223b2195fd0aebd3dd3e42745610edaaa2))
+* use absolute GitHub URLs in PyPI READMEs ([c6ecd82](https://github.com/hybroai/a2a-robots/commit/c6ecd82295e5ad3f37556836f8649649f63d86a4))
+
 ## [0.1.1](https://github.com/hybroai/a2a-robots/compare/a2a-robots-pollen-v0.1.0...a2a-robots-pollen-v0.1.1) (2026-11-18)
 
 
