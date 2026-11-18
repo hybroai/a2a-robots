@@ -1,6 +1,6 @@
 """Sharpa Wave hands for a2a-robots."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .model import fetch_model
 from .mujoco_backend import SharpaMujocoBackend, load_model
