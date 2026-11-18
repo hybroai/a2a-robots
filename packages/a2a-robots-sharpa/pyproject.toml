@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "a2a-robots-sharpa"
-version = "0.1.1"
+version = "0.1.2"
 description = "Sharpa Wave hands for a2a-robots, simulated in MuJoCo"
 readme = "README.md"
 license = "Apache-2.0"
