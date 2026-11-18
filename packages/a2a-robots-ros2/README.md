@@ -2,6 +2,8 @@
 
 An allowlisted ROS 2 bridge for [a2a-robots](../../README.md): it exposes the ROS 2 actions, services and topics you list as A2A skills, for robot bring-up and debugging.
 
+Install from PyPI: `pip install a2a-robots-ros2`.
+
 This is not the typed robot skill agent. `a2a_robots.RobotAdapter` gives planners one contract (`move_to`, `stop`, the busy rule, safety limits, one result shape) on any robot; this bridge passes configured ROS calls through and adds no safety limits of its own. Anything physical, such as joint limits or an emergency stop, stays in the robot's ROS stack.
 
 The bridge talks to ROS only through the `RosGateway` interface. `RclpyGateway` implements it for a live ROS 2 graph.
