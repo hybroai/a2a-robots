@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "a2a-robots-lerobot"
-version = "0.1.1"
+version = "0.1.2"
 description = "Hugging Face LeRobot backend for a2a-robots"
 readme = "README.md"
 requires-python = ">=3.11"

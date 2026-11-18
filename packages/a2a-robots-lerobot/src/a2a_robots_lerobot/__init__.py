@@ -1,6 +1,6 @@
 """Hugging Face LeRobot backend for a2a-robots."""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from a2a_robots_lerobot.backend import LeRobotArmBackend
 from a2a_robots_lerobot.config import (
