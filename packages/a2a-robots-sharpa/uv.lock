@@ -44,7 +44,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "a2a-robots-sharpa"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-robots" },
