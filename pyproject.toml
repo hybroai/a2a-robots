@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "a2a-robots"
-version = "0.1.1"
+version = "0.1.2"
 description = "Expose robots as A2A agents with task-level skills and adapter-enforced safety limits"
 readme = "README.md"
 license = "Apache-2.0"

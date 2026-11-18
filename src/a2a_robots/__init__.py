@@ -1,6 +1,6 @@
 """Expose robots as A2A agents with task-level skills and adapter-enforced safety limits."""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from .adapter import SAFETY_LIMITS_EXTENSION, RobotAdapter, serve_robot
 from .backend import HandState, MotionOutcome, RobotBackend
