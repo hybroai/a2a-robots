@@ -99,6 +99,10 @@ def test_release_please_config_and_lock_sync():
         assert package["release-type"] == "python"
         assert package["package-name"] == pypi_name
         assert package["component"] == component
+    # Root "." receives every commit unless nested package paths are excluded.
+    assert set(config["packages"]["."]["exclude-paths"]) == {
+        path for path in PACKAGES if path != "."
+    }
     workflow = (ROOT / ".github/workflows/release-please.yml").read_text()
     assert "sync-lock:" in workflow
     assert '--label "autorelease: pending"' in workflow

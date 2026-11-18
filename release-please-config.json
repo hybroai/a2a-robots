@@ -10,7 +10,13 @@
       "component": "a2a-robots",
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": true
+      "bump-patch-for-minor-pre-major": true,
+      "exclude-paths": [
+        "packages/a2a-robots-lerobot",
+        "packages/a2a-robots-pollen",
+        "packages/a2a-robots-ros2",
+        "packages/a2a-robots-sharpa"
+      ]
     },
     "packages/a2a-robots-lerobot": {
       "release-type": "python",

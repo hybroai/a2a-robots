@@ -21,6 +21,9 @@ Each installable package versions independently:
 | `a2a-robots-ros2` | `a2a-robots-ros2` | `packages/a2a-robots-ros2` |
 | `a2a-robots-sharpa` | `a2a-robots-sharpa` | `packages/a2a-robots-sharpa` |
 
+The root package configures `exclude-paths` for every `packages/*` directory so
+backend-only commits do not also bump `a2a-robots`.
+
 1. **Merge changes into `main` with Conventional Commit messages.**
    release-please attributes commits to packages by the paths they touch.
    Prefer scoped subjects such as `feat(lerobot): ...` or `fix(pollen): ...`.
