@@ -1,5 +1,7 @@
 """Expose robots as A2A agents with task-level skills and adapter-enforced safety limits."""
 
+__version__ = "0.1.0"
+
 from .adapter import SAFETY_LIMITS_EXTENSION, RobotAdapter, serve_robot
 from .backend import HandState, MotionOutcome, RobotBackend
 from .controller import RobotController, SkillCancelled, StopError
@@ -25,5 +27,6 @@ __all__ = [
     "SkillResult",
     "StopError",
     "Workspace",
+    "__version__",
     "serve_robot",
 ]

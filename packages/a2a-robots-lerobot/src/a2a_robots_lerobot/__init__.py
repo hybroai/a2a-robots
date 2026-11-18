@@ -1,5 +1,7 @@
 """Hugging Face LeRobot backend for a2a-robots."""
 
+__version__ = "0.1.0"
+
 from a2a_robots_lerobot.backend import LeRobotArmBackend
 from a2a_robots_lerobot.config import (
     KOCH_ARM_JOINTS,
@@ -30,6 +32,7 @@ __all__ = [
     "LeRobotKinematicsPlanner",
     "PlacoKinematics",
     "SO_ARM_JOINTS",
+    "__version__",
     "bi_so_arms",
     "koch_arms",
     "matrix_to_pose",
