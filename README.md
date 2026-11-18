@@ -7,10 +7,10 @@ Built on [a2a-adapter](https://github.com/hybroai/a2a-adapter). Early developmen
 | Package | What it is |
 | --- | --- |
 | `a2a-robots` (this directory) | The core: skills, safety limits, the controller, the A2A adapter, and `FakeBackend`. |
-| [`a2a-robots-lerobot`](packages/a2a-robots-lerobot) | Hugging Face LeRobot arms (`SO-100`/`SO-101`, `Bi-SO`, `Koch`) via `Robot` and `RobotKinematics`. |
-| [`a2a-robots-pollen`](packages/a2a-robots-pollen) | Pollen Robotics Reachy 2 arms and grippers over `reachy2-sdk`. |
-| [`a2a-robots-sharpa`](packages/a2a-robots-sharpa) | Sharpa Wave hands, simulated in MuJoCo. |
-| [`a2a-robots-ros2`](packages/a2a-robots-ros2) | An allowlisted ROS 2 bridge for bring-up and debugging. Not the typed skill contract. |
+| [`a2a-robots-lerobot`](https://github.com/hybroai/a2a-robots/tree/main/packages/a2a-robots-lerobot) | Hugging Face LeRobot arms (`SO-100`/`SO-101`, `Bi-SO`, `Koch`) via `Robot` and `RobotKinematics`. |
+| [`a2a-robots-pollen`](https://github.com/hybroai/a2a-robots/tree/main/packages/a2a-robots-pollen) | Pollen Robotics Reachy 2 arms and grippers over `reachy2-sdk`. |
+| [`a2a-robots-sharpa`](https://github.com/hybroai/a2a-robots/tree/main/packages/a2a-robots-sharpa) | Sharpa Wave hands, simulated in MuJoCo. |
+| [`a2a-robots-ros2`](https://github.com/hybroai/a2a-robots/tree/main/packages/a2a-robots-ros2) | An allowlisted ROS 2 bridge for bring-up and debugging. Not the typed skill contract. |
 
 ## Skills
 
@@ -141,7 +141,7 @@ uv run --directory packages/a2a-robots-sharpa --extra dev pytest
 ## Releases
 
 Package versions and PyPI publishes are automated with release-please. See
-[CONTRIBUTING.md](CONTRIBUTING.md#release-process).
+[CONTRIBUTING.md](https://github.com/hybroai/a2a-robots/blob/main/CONTRIBUTING.md#release-process).
 
 ## License
 
